@@ -1,0 +1,51 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: football-db
+    restart: always
+    environment:
+      MYSQL_DATABASE: football_team
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_USER: team_user
+      MYSQL_PASSWORD: team_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  backend:
+    build: ./backend
+    container_name: football-backend
+    restart: always
+    ports:
+      - "5001:5000"
+    environment:
+      DATABASE_URL: mysql+pymysql://team_user:team_password@db/football_team?charset=utf8mb4
+      FLASK_APP: app.py
+      FLASK_ENV: development
+    volumes:
+      - ./backend/uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    container_name: football-frontend
+    restart: always
+    ports:
+      - "3000:80"
+    environment:
+      VITE_API_URL: http://localhost:5001/api
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:

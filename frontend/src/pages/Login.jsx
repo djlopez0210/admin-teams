@@ -1,0 +1,96 @@
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Lock, User, LogIn, AlertCircle } from 'lucide-react';
+import { adminService } from '../services/api';
+
+const Login = () => {
+    const [credentials, setCredentials] = useState({ username: '', password: '' });
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+    const navigate = useNavigate();
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+
+        try {
+            const res = await adminService.login(credentials);
+            if (res.data.authenticated) {
+                localStorage.setItem('adminAuthenticated', 'true');
+                navigate('/admin');
+            }
+        } catch (err) {
+            setError('Credenciales incorrectas. Por favor, intente de nuevo.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+            <div className="glass animate-fade-in" style={{ width: '100%', maxWidth: '400px', padding: '2.5rem' }}>
+                <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+                    <div style={{ background: 'var(--glass)', width: '64px', height: '64px', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0 auto 1rem' }}>
+                        <Lock size={32} color="var(--primary)" />
+                    </div>
+                    <h2>Área Restringida</h2>
+                    <p style={{ color: 'var(--text-muted)' }}>Inicia sesión para acceder al panel de admin.</p>
+                </div>
+
+                {error && (
+                    <div className="alert alert-error" style={{ marginBottom: '1.5rem', fontSize: '0.875rem' }}>
+                        <AlertCircle size={18} /> {error}
+                    </div>
+                )}
+
+                <form onSubmit={handleSubmit}>
+                    <div className="form-group">
+                        <label className="label">Usuario</label>
+                        <div style={{ position: 'relative' }}>
+                            <User size={18} color="var(--text-muted)" style={{ position: 'absolute', left: '1rem', top: '0.85rem' }} />
+                            <input 
+                                type="text" 
+                                className="input" 
+                                style={{ paddingLeft: '3rem' }}
+                                value={credentials.username}
+                                onChange={(e) => setCredentials({ ...credentials, username: e.target.value })}
+                                required
+                            />
+                        </div>
+                    </div>
+
+                    <div className="form-group">
+                        <label className="label">Contraseña</label>
+                        <div style={{ position: 'relative' }}>
+                            <Lock size={18} color="var(--text-muted)" style={{ position: 'absolute', left: '1rem', top: '0.85rem' }} />
+                            <input 
+                                type="password" 
+                                className="input" 
+                                style={{ paddingLeft: '3rem' }}
+                                value={credentials.password}
+                                onChange={(e) => setCredentials({ ...credentials, password: e.target.value })}
+                                required
+                            />
+                        </div>
+                    </div>
+
+                    <button 
+                        type="submit" 
+                        className="btn btn-primary" 
+                        style={{ width: '100%', marginTop: '1rem' }}
+                        disabled={loading}
+                    >
+                        {loading ? 'Verificando...' : (
+                            <>
+                                <LogIn size={18} /> Entrar al Panel
+                            </>
+                        )}
+                    </button>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+export default Login;
