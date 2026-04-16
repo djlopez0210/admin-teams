@@ -274,47 +274,6 @@ const RegisterPlayer = () => {
                         </select>
                     </div>
 
-                    {/* Payment Info */}
-                    <div className="form-group" style={{ gridColumn: 'span 2', borderTop: '1px solid var(--border)', paddingTop: '1.5rem', marginTop: '1rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                            <h3 style={{ margin: 0, color: 'var(--primary)' }}>Información de Pago</h3>
-                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'right' }}>
-                                <div>Inscripción: <strong>${fees.registration?.toLocaleString()}</strong></div>
-                                <div>Uniforme: <strong>${fees.uniform?.toLocaleString()}</strong></div>
-                                <div>Total: <strong style={{ color: 'var(--text)' }}>${(fees.registration + fees.uniform)?.toLocaleString()}</strong></div>
-                            </div>
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-                            <div>
-                                <label className="label">Estado de Pago</label>
-                                <select 
-                                    className="select"
-                                    value={formData.payment_status}
-                                    onChange={(e) => setFormData({...formData, payment_status: e.target.value})}
-                                    required
-                                >
-                                    <option value="Pendiente">Pendiente</option>
-                                    <option value="Pagó">Pagó</option>
-                                    <option value="Abonó">Abonó</option>
-                                </select>
-                            </div>
-
-                            {formData.payment_status === 'Abonó' && (
-                                <div className="animate-fade-in">
-                                    <label className="label">Monto Abonado ($)</label>
-                                    <input 
-                                        type="number"
-                                        className="input"
-                                        placeholder="Ej: 50.000"
-                                        value={formData.payment_amount}
-                                        onChange={(e) => setFormData({...formData, payment_amount: e.target.value})}
-                                        required
-                                    />
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
                 </div>
 
                 <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem' }}>

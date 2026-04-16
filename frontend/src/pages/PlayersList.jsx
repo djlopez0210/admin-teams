@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Edit2, Trash2, History, X, ArrowLeft } from 'lucide-react';
+import { Search, Edit2, Trash2, History, X, ArrowLeft, DollarSign, Save } from 'lucide-react';
 import { playerService } from '../services/api';
 
 const PlayersList = () => {
@@ -10,6 +10,9 @@ const PlayersList = () => {
     const [historyPlayer, setHistoryPlayer] = useState(null);
     const [historyData, setHistoryData] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [selectedPlayer, setSelectedPlayer] = useState(null);
+    const [paymentForm, setPaymentForm] = useState({ status: '', amount: 0 });
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
 
     useEffect(() => {
         loadPlayers();
@@ -44,6 +47,29 @@ const PlayersList = () => {
             setHistoryPlayer(player);
         } catch (err) {
             console.error('Error loading history', err);
+        }
+    };
+
+    const handleOpenPayment = (player) => {
+        setSelectedPlayer(player);
+        setPaymentForm({
+            status: player.payment_status,
+            amount: player.payment_amount
+        });
+        setShowPaymentModal(true);
+    };
+
+    const handleSavePayment = async (e) => {
+        e.preventDefault();
+        try {
+            await playerService.updatePayment(selectedPlayer.id, {
+                payment_status: paymentForm.status,
+                payment_amount: paymentForm.amount
+            });
+            setShowPaymentModal(false);
+            loadPlayers();
+        } catch (err) {
+            alert('Error al actualizar pago');
         }
     };
 
@@ -140,6 +166,9 @@ const PlayersList = () => {
                                 <td style={{ fontSize: '0.85rem' }}>{new Date(p.last_registration_date).toLocaleDateString()}</td>
                                 <td>
                                     <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                        <button className="btn btn-primary" style={{ padding: '0.5rem' }} title="Editar Pago" onClick={() => handleOpenPayment(p)}>
+                                            <DollarSign size={16} />
+                                        </button>
                                         <button className="btn btn-secondary" style={{ padding: '0.5rem' }} title="Ver Historial" onClick={() => viewHistory(p)}>
                                             <History size={16} />
                                         </button>
@@ -199,6 +228,60 @@ const PlayersList = () => {
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Payment Modal */}
+            {showPaymentModal && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+                    background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)',
+                    display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
+                }}>
+                    <div className="glass" style={{ width: '400px', padding: '2rem', position: 'relative' }}>
+                        <button 
+                            onClick={() => setShowPaymentModal(false)}
+                            style={{ position: 'absolute', right: '1.5rem', top: '1.5rem', background: 'none', border: 'none', color: 'var(--text)' }}
+                        >
+                            <X size={24} />
+                        </button>
+                        
+                        <h2 style={{ marginBottom: '1.5rem' }}>Actualizar Pago</h2>
+                        <p style={{ marginBottom: '1.5rem', fontSize: '0.9rem' }}>Jugador: <strong>{selectedPlayer.full_name}</strong></p>
+
+                        <form onSubmit={handleSavePayment}>
+                            <div className="form-group">
+                                <label className="label">Estado de Pago</label>
+                                <select 
+                                    className="select"
+                                    value={paymentForm.status}
+                                    onChange={(e) => setPaymentForm({...paymentForm, status: e.target.value})}
+                                    required
+                                >
+                                    <option value="Pendiente">Pendiente</option>
+                                    <option value="Pagó">Pagó</option>
+                                    <option value="Abonó">Abonó</option>
+                                </select>
+                            </div>
+
+                            {paymentForm.status === 'Abonó' && (
+                                <div className="form-group animate-fade-in">
+                                    <label className="label">Monto Abonado ($)</label>
+                                    <input 
+                                        type="number"
+                                        className="input"
+                                        value={paymentForm.amount}
+                                        onChange={(e) => setPaymentForm({...paymentForm, amount: e.target.value})}
+                                        required
+                                    />
+                                </div>
+                            )}
+
+                            <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>
+                                <Save size={18} /> Guardar Cambios
+                            </button>
+                        </form>
                     </div>
                 </div>
             )}

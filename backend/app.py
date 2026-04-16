@@ -1,3 +1,5 @@
+import os
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -299,6 +301,24 @@ def get_player_history(p_id):
     columns = result.keys()
     history = [dict(zip(columns, row)) for row in result]
     return jsonify(history)
+
+@app.route('/api/players/<int:p_id>/payment', methods=['PATCH'])
+def update_payment(p_id):
+    try:
+        data = request.json
+        status = data.get('payment_status')
+        amount = data.get('payment_amount')
+        
+        db.session.execute(
+            text("UPDATE players SET payment_status = :status, payment_amount = :amount WHERE id = :id"),
+            {"status": status, "amount": amount, "id": p_id}
+        )
+        db.session.commit()
+        log_activity("UPDATE_PAYMENT", f"Updated payment for player ID {p_id} to {status} (${amount})")
+        return jsonify({"message": "Payment updated successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 # --- STATS & LOGS ---
 

@@ -9,6 +9,8 @@ const AdminPanel = () => {
     const [logs, setLogs] = useState([]);
     const [positions, setPositions] = useState([]);
     const [newPosition, setNewPosition] = useState('');
+    const [editingId, setEditingId] = useState(null);
+    const [editingName, setEditingName] = useState('');
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [activeTab, setActiveTab] = useState('stats'); // 'stats', 'finances', 'branding'
@@ -144,7 +146,14 @@ const AdminPanel = () => {
                 </div>
             </div>
 
-            {/* Tabs Navigation */}
+            {loading ? (
+                <div style={{ padding: '4rem', textAlign: 'center' }}>
+                    <RefreshCcw size={48} className="animate-spin" style={{ margin: '0 auto 1rem', opacity: 0.5 }} />
+                    <p>Cargando información del sistema...</p>
+                </div>
+            ) : (
+                <>
+                    {/* Tabs Navigation */}
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '1rem' }}>
                 <button 
                     className={`btn ${activeTab === 'stats' ? 'btn-primary' : 'btn-secondary'}`} 
@@ -167,7 +176,7 @@ const AdminPanel = () => {
             </div>
 
             {activeTab === 'stats' && (
-                <>
+                <div className="animate-fade-in">
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1.5rem', marginBottom: '3rem' }}>
                         <div className="glass" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
                             <div style={{ background: 'rgba(79, 172, 254, 0.2)', padding: '1rem', borderRadius: '1rem' }}>
@@ -188,8 +197,109 @@ const AdminPanel = () => {
                             </div>
                         </div>
                     </div>
-                    {/* ... (Existing Grid with positions and logs) ... */}
-                </>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '2rem' }}>
+                        {/* Positions Management */}
+                        <div>
+                            <h3 style={{ marginBottom: '1.5rem' }}>Gestionar Posiciones</h3>
+                            <form onSubmit={handleAddPosition} className="glass" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
+                                <div className="form-group">
+                                    <label className="label">Nueva Posición</label>
+                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                        <input 
+                                            type="text" 
+                                            className="input" 
+                                            placeholder="Ej: Volante mixto" 
+                                            value={newPosition}
+                                            onChange={(e) => setNewPosition(e.target.value)}
+                                        />
+                                        <button type="submit" className="btn btn-primary" style={{ padding: '0.75rem' }}>
+                                            <Plus size={20} />
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+
+                            <div className="glass" style={{ padding: '1rem' }}>
+                                <ul style={{ listStyle: 'none' }}>
+                                    {positions.map(pos => (
+                                        <li key={pos.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', borderBottom: '1px solid var(--glass-border)' }}>
+                                            {editingId === pos.id ? (
+                                                <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
+                                                    <input 
+                                                        type="text" 
+                                                        className="input" 
+                                                        style={{ padding: '0.5rem' }}
+                                                        value={editingName}
+                                                        onChange={(e) => setEditingName(e.target.value)}
+                                                        autoFocus
+                                                    />
+                                                    <button className="btn btn-primary" style={{ padding: '0.5rem' }} onClick={() => handleSaveEdit(pos.id)}>
+                                                        <Save size={16} />
+                                                    </button>
+                                                    <button className="btn btn-secondary" style={{ padding: '0.5rem' }} onClick={handleCancelEdit}>
+                                                        <X size={16} />
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <span>{pos.name}</span>
+                                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                        <button 
+                                                            onClick={() => handleStartEdit(pos)}
+                                                            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                                                            title="Editar"
+                                                        >
+                                                            <Edit2 size={16} />
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => handleDeletePosition(pos.id)}
+                                                            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                                                            title="Eliminar"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+
+                        {/* Audit Logs */}
+                        <div>
+                            <h3 style={{ marginBottom: '1.5rem' }}>Logs de Actividad</h3>
+                            <div className="glass table-container" style={{ maxHeight: '500px', overflowY: 'auto' }}>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Acción</th>
+                                            <th>Detalles</th>
+                                            <th>Fecha</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {logs.map(log => (
+                                            <tr key={log.id}>
+                                                <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                                                    <span style={{ 
+                                                        color: log.action.includes('DELETE') ? 'var(--error)' : 'var(--primary)'
+                                                    }}>
+                                                        {log.action}
+                                                    </span>
+                                                </td>
+                                                <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{log.details}</td>
+                                                <td style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{new Date(log.created_at).toLocaleString()}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {activeTab === 'finances' && (
@@ -296,114 +406,10 @@ const AdminPanel = () => {
                     </form>
                 </div>
             )}
-
-            {activeTab === 'stats' && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '2rem' }}>
-                
-                {/* Positions Management */}
-                <div>
-                    <h3 style={{ marginBottom: '1.5rem' }}>Gestionar Posiciones</h3>
-                    <form onSubmit={handleAddPosition} className="glass" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
-                        <div className="form-group">
-                            <label className="label">Nueva Posición</label>
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                <input 
-                                    type="text" 
-                                    className="input" 
-                                    placeholder="Ej: Volante mixto" 
-                                    value={newPosition}
-                                    onChange={(e) => setNewPosition(e.target.value)}
-                                />
-                                <button type="submit" className="btn btn-primary" style={{ padding: '0.75rem' }}>
-                                    <Plus size={20} />
-                                </button>
-                            </div>
-                        </div>
-                    </form>
-
-                    <div className="glass" style={{ padding: '1rem' }}>
-                        <ul style={{ listStyle: 'none' }}>
-                            {positions.map(pos => (
-                                <li key={pos.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', borderBottom: '1px solid var(--glass-border)' }}>
-                                    {editingId === pos.id ? (
-                                        <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
-                                            <input 
-                                                type="text" 
-                                                className="input" 
-                                                style={{ padding: '0.5rem' }}
-                                                value={editingName}
-                                                onChange={(e) => setEditingName(e.target.value)}
-                                                autoFocus
-                                            />
-                                            <button className="btn btn-primary" style={{ padding: '0.5rem' }} onClick={() => handleSaveEdit(pos.id)}>
-                                                <Save size={16} />
-                                            </button>
-                                            <button className="btn btn-secondary" style={{ padding: '0.5rem' }} onClick={handleCancelEdit}>
-                                                <X size={16} />
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <span>{pos.name}</span>
-                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                <button 
-                                                    onClick={() => handleStartEdit(pos)}
-                                                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                                                    title="Editar"
-                                                >
-                                                    <Edit2 size={16} />
-                                                </button>
-                                                <button 
-                                                    onClick={() => handleDeletePosition(pos.id)}
-                                                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                                                    title="Eliminar"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            </div>
-                                        </>
-                                    )}
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                </div>
-
-                {/* Audit Logs */}
-                <div>
-                    <h3 style={{ marginBottom: '1.5rem' }}>Logs de Actividad</h3>
-                    <div className="glass table-container" style={{ maxHeight: '500px', overflowY: 'auto' }}>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Acción</th>
-                                    <th>Detalles</th>
-                                    <th>Fecha</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {logs.map(log => (
-                                    <tr key={log.id}>
-                                        <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>
-                                            <span style={{ 
-                                                color: log.action.includes('DELETE') ? 'var(--error)' : 'var(--primary)'
-                                            }}>
-                                                {log.action}
-                                            </span>
-                                        </td>
-                                        <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{log.details}</td>
-                                        <td style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{new Date(log.created_at).toLocaleString()}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-            </div>
-        )}
-    </div>
-);
+                </>
+            )}
+        </div>
+    );
 };
 
 export default AdminPanel;

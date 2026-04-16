@@ -11,6 +11,7 @@ export const playerService = {
   getById: (id) => api.get(`/players/${id}`),
   delete: (id) => api.delete(`/players/${id}`),
   getHistory: (id) => api.get(`/players/${id}/history`),
+  updatePayment: (id, data) => api.patch(`/players/${id}/payment`, data),
 };
 
 export const positionService = {
