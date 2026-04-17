@@ -22,6 +22,7 @@ export const playerService = {
     delete: (id) => api.delete(`/players/${id}`),
     getHistory: (id) => api.get(`/players/${id}/history`),
     updatePayment: (id, data) => api.patch(`/players/${id}/payment`, data),
+    getEps: (teamSlug) => api.get(`/${teamSlug}/eps`),
 };
 
 export const positionService = {
@@ -56,6 +57,14 @@ export const settingsService = {
             headers: { 'Content-Type': 'multipart/form-data' }
         });
     }
+};
+
+export const costService = {
+    getPublic: (teamSlug) => api.get(`/${teamSlug}/costs`),
+    getAll: () => api.get('/costs'),
+    create: (data) => api.post('/costs', data),
+    update: (id, data) => api.put(`/costs/${id}`, data),
+    delete: (id) => api.delete(`/costs/${id}`),
 };
 
 export default api;

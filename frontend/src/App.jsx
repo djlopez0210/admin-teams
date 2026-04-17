@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react'
-import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom'
+import { NotificationProvider } from './context/NotificationContext'
+import { BrowserRouter as Router, Routes, Route, NavLink, Link } from 'react-router-dom'
 import { UserPlus, Settings as SettingsIcon, Trophy, Image } from 'lucide-react'
 import RegisterPlayer from './pages/RegisterPlayer'
 import PlayersList from './pages/PlayersList'
 import AdminPanel from './pages/AdminPanel'
 import Login from './pages/Login'
+import LandingPage from './pages/LandingPage'
 import ProtectedRoute from './components/ProtectedRoute'
 import { settingsService } from './services/api'
 import { useParams, useLocation } from 'react-router-dom'
@@ -67,14 +69,25 @@ function TeamLayout({ children, isPublic = true }) {
   return (
     <>
       <header className="navbar glass">
-        <div className="logo" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <Link 
+          to={`/${teamSlug || ''}`} 
+          className="logo" 
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '0.75rem', 
+            textDecoration: 'none', 
+            color: 'inherit',
+            cursor: teamSlug ? 'pointer' : 'default'
+          }}
+        >
           {settings.team_logo_url ? (
             <img src={settings.team_logo_url} alt="Logo" style={{ height: '40px', width: '40px', objectFit: 'contain', borderRadius: '8px' }} />
           ) : (
             <Trophy size={32} color="var(--primary)" />
           )}
           <h2 style={{ margin: 0 }}>{settings.team_name}</h2>
-        </div>
+        </Link>
         <nav className="nav-links">
           {isPublic ? (
             <NavLink to={`/${teamSlug}`} className="nav-link">
@@ -104,35 +117,37 @@ function TeamLayout({ children, isPublic = true }) {
 
 function App() {
   return (
-    <Router>
-      <Routes>
-        <Route path="/login" element={<Login />} />
+    <NotificationProvider>
+      <Router>
+        <Routes>
+          <Route path="/login" element={<Login />} />
 
-        {/* Admin routes (Prioritized over dynamic slugs) */}
-        <Route 
-          path="/players" 
-          element={
-            <ProtectedRoute>
-              <TeamLayout isPublic={false}><PlayersList /></TeamLayout>
-            </ProtectedRoute>
-          } 
-        />
-        <Route 
-          path="/admin" 
-          element={
-            <ProtectedRoute>
-              <TeamLayout isPublic={false}><AdminPanel onSettingsUpdate={() => window.location.reload()} /></TeamLayout>
-            </ProtectedRoute>
-          } 
-        />
+          {/* Admin routes (Prioritized over dynamic slugs) */}
+          <Route 
+            path="/players" 
+            element={
+              <ProtectedRoute>
+                <TeamLayout isPublic={false}><PlayersList /></TeamLayout>
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/admin" 
+            element={
+              <ProtectedRoute>
+                <TeamLayout isPublic={false}><AdminPanel onSettingsUpdate={() => window.location.reload()} /></TeamLayout>
+              </ProtectedRoute>
+            } 
+          />
 
-        {/* Public Registration routes (Greedy param at bottom) */}
-        <Route path="/:teamSlug" element={<TeamLayout isPublic={true}><RegisterPlayer /></TeamLayout>} />
+          {/* Public Registration routes (Greedy param at bottom) */}
+          <Route path="/:teamSlug" element={<TeamLayout isPublic={true}><RegisterPlayer /></TeamLayout>} />
 
-        {/* Fallback */}
-        <Route path="/" element={<div style={{ textAlign: 'center', padding: '5rem' }}><h1>Bienvenido</h1><p>Por favor usa el link de tu equipo.</p></div>} />
-      </Routes>
-    </Router>
+          {/* Landing Page (Root) */}
+          <Route path="/" element={<LandingPage />} />
+        </Routes>
+      </Router>
+    </NotificationProvider>
   )
 }
 

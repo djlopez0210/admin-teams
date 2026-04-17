@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Edit2, Trash2, History, X, ArrowLeft, DollarSign, Save } from 'lucide-react';
-import { playerService } from '../services/api';
+import { playerService, costService } from '../services/api';
+import { useNotification } from '../context/NotificationContext';
 
 const PlayersList = () => {
     const navigate = useNavigate();
+    const { showNotification } = useNotification();
     const [players, setPlayers] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [historyPlayer, setHistoryPlayer] = useState(null);
@@ -13,10 +15,24 @@ const PlayersList = () => {
     const [selectedPlayer, setSelectedPlayer] = useState(null);
     const [paymentForm, setPaymentForm] = useState({ status: '', amount: 0 });
     const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [totalMandatory, setTotalMandatory] = useState(0);
 
     useEffect(() => {
         loadPlayers();
+        loadCosts();
     }, []);
+
+    const loadCosts = async () => {
+        try {
+            const res = await costService.getAll();
+            const mandatory = res.data
+                .filter(c => c.is_mandatory)
+                .reduce((acc, current) => acc + current.amount, 0);
+            setTotalMandatory(mandatory);
+        } catch (err) {
+            console.error('Error loading costs', err);
+        }
+    };
 
     const loadPlayers = async () => {
         try {
@@ -33,9 +49,10 @@ const PlayersList = () => {
         if (window.confirm('¿Estás seguro de que deseas eliminar este jugador? Su número de uniforme volverá a estar disponible.')) {
             try {
                 await playerService.delete(id);
+                showNotification('Jugador eliminado con éxito', 'success');
                 loadPlayers();
             } catch (err) {
-                alert('Error al eliminar');
+                showNotification('Error al eliminar jugador', 'error');
             }
         }
     };
@@ -54,9 +71,19 @@ const PlayersList = () => {
         setSelectedPlayer(player);
         setPaymentForm({
             status: player.payment_status,
-            amount: player.payment_amount
+            amount: player.payment_status === 'Pagó' ? totalMandatory : player.payment_amount
         });
         setShowPaymentModal(true);
+    };
+
+    const handleStatusChange = (newStatus) => {
+        let newAmount = paymentForm.amount;
+        if (newStatus === 'Pagó') {
+            newAmount = totalMandatory;
+        } else if (newStatus === 'Pendiente') {
+            newAmount = 0;
+        }
+        setPaymentForm({ ...paymentForm, status: newStatus, amount: newAmount });
     };
 
     const handleSavePayment = async (e) => {
@@ -66,24 +93,25 @@ const PlayersList = () => {
                 payment_status: paymentForm.status,
                 payment_amount: paymentForm.amount
             });
+            showNotification('Pago actualizado correctamente', 'success');
             setShowPaymentModal(false);
             loadPlayers();
         } catch (err) {
-            alert('Error al actualizar pago');
+            showNotification('Error al actualizar pago', 'error');
         }
     };
 
-    const filteredPlayers = players.filter(p => 
+    const filteredPlayers = players.filter(p =>
         p.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.document_number.includes(searchTerm)
     );
 
     return (
         <div className="animate-fade-in">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '2rem' }}>
+            <div className="flex-responsive" style={{ marginBottom: '2rem', alignItems: 'flex-end' }}>
                 <div>
-                    <button 
-                        className="btn btn-secondary" 
+                    <button
+                        className="btn btn-secondary"
                         style={{ marginBottom: '1rem', padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
                         onClick={() => navigate('/admin')}
                     >
@@ -92,13 +120,13 @@ const PlayersList = () => {
                     <h1>Nómina del Equipo</h1>
                     <p style={{ color: 'var(--text-muted)' }}>Listado oficial de jugadores registrados y activos.</p>
                 </div>
-                <div style={{ position: 'relative', width: '300px' }}>
+                <div style={{ position: 'relative', width: '100%', maxWidth: '300px' }}>
                     <Search size={18} color="var(--text-muted)" style={{ position: 'absolute', left: '1rem', top: '0.85rem' }} />
-                    <input 
-                        type="text" 
-                        className="input" 
-                        placeholder="Buscar por nombre o documento..." 
-                        style={{ paddingLeft: '3rem' }}
+                    <input
+                        type="text"
+                        className="input"
+                        placeholder="Buscar por nombre..."
+                        style={{ paddingLeft: '3rem', width: '100%' }}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -109,7 +137,7 @@ const PlayersList = () => {
                 <table>
                     <thead>
                         <tr>
-                            <th>Documento</th>
+                            <th>Nro. Documento</th>
                             <th>Nombre Completo</th>
                             <th>Teléfono</th>
                             <th>Uniforme</th>
@@ -127,10 +155,10 @@ const PlayersList = () => {
                         ) : filteredPlayers.map(p => (
                             <tr key={p.id}>
                                 <td>
-                                    <code style={{ 
-                                        background: p.payment_status === 'Pagó' ? 'var(--success-bg, #dcfce7)' : 'var(--glass)', 
+                                    <code style={{
+                                        background: p.payment_status === 'Pagó' ? 'var(--success-bg, #dcfce7)' : 'var(--glass)',
                                         color: p.payment_status === 'Pagó' ? 'var(--success, #16a34a)' : 'var(--text)',
-                                        padding: '0.2rem 0.5rem', 
+                                        padding: '0.2rem 0.5rem',
                                         borderRadius: '4px',
                                         fontWeight: p.payment_status === 'Pagó' ? 700 : 400,
                                         border: p.payment_status === 'Pagó' ? '1px solid var(--success)' : 'none'
@@ -141,7 +169,7 @@ const PlayersList = () => {
                                 <td style={{ fontWeight: 600 }}>{p.full_name}</td>
                                 <td>{p.phone}</td>
                                 <td>
-                                    <span style={{ 
+                                    <span style={{
                                         background: 'linear-gradient(135deg, var(--primary), var(--secondary))',
                                         color: '#000',
                                         padding: '0.25rem 0.75rem',
@@ -191,13 +219,13 @@ const PlayersList = () => {
                     display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
                 }}>
                     <div className="glass" style={{ width: '90%', maxWidth: '800px', maxHeight: '80vh', overflowY: 'auto', padding: '2rem', position: 'relative' }}>
-                        <button 
+                        <button
                             onClick={() => setHistoryPlayer(null)}
                             style={{ position: 'absolute', right: '1.5rem', top: '1.5rem', background: 'none', border: 'none', color: 'var(--text)' }}
                         >
                             <X size={24} />
                         </button>
-                        
+
                         <h2 style={{ marginBottom: '1.5rem' }}>Historial de Registros</h2>
                         <div style={{ marginBottom: '2rem' }}>
                             <p><strong>Jugador:</strong> {historyPlayer.full_name}</p>
@@ -240,23 +268,23 @@ const PlayersList = () => {
                     display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
                 }}>
                     <div className="glass" style={{ width: '400px', padding: '2rem', position: 'relative' }}>
-                        <button 
+                        <button
                             onClick={() => setShowPaymentModal(false)}
                             style={{ position: 'absolute', right: '1.5rem', top: '1.5rem', background: 'none', border: 'none', color: 'var(--text)' }}
                         >
                             <X size={24} />
                         </button>
-                        
+
                         <h2 style={{ marginBottom: '1.5rem' }}>Actualizar Pago</h2>
                         <p style={{ marginBottom: '1.5rem', fontSize: '0.9rem' }}>Jugador: <strong>{selectedPlayer.full_name}</strong></p>
 
                         <form onSubmit={handleSavePayment}>
                             <div className="form-group">
                                 <label className="label">Estado de Pago</label>
-                                <select 
+                                <select
                                     className="select"
                                     value={paymentForm.status}
-                                    onChange={(e) => setPaymentForm({...paymentForm, status: e.target.value})}
+                                    onChange={(e) => handleStatusChange(e.target.value)}
                                     required
                                 >
                                     <option value="Pendiente">Pendiente</option>
@@ -265,14 +293,22 @@ const PlayersList = () => {
                                 </select>
                             </div>
 
+                            {paymentForm.status === 'Pagó' && (
+                                <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(34, 197, 94, 0.1)', borderRadius: '0.75rem', border: '1px solid var(--success)' }}>
+                                    <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--success)' }}>
+                                        Monto total obligatorio: <strong>${totalMandatory.toLocaleString()}</strong>
+                                    </p>
+                                </div>
+                            )}
+
                             {paymentForm.status === 'Abonó' && (
                                 <div className="form-group animate-fade-in">
                                     <label className="label">Monto Abonado ($)</label>
-                                    <input 
+                                    <input
                                         type="number"
                                         className="input"
                                         value={paymentForm.amount}
-                                        onChange={(e) => setPaymentForm({...paymentForm, amount: e.target.value})}
+                                        onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
                                         required
                                     />
                                 </div>

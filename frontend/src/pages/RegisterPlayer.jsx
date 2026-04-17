@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Save, XCircle, CheckCircle, Info } from 'lucide-react';
-import { playerService, positionService, uniformService, settingsService } from '../services/api';
+import { playerService, positionService, uniformService, settingsService, costService } from '../services/api';
 import { useParams } from 'react-router-dom';
+import { useNotification } from '../context/NotificationContext';
 
 const RegisterPlayer = () => {
     const { teamSlug } = useParams();
+    const { showNotification } = useNotification();
     const initialFormState = {
         document_type: 'Cédula de Ciudadanía',
         document_number: '',
@@ -28,7 +30,11 @@ const RegisterPlayer = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
-    const [fees, setFees] = useState({ uniform: 0, registration: 0 });
+    const [costs, setCosts] = useState([]);
+    const [showModal, setShowModal] = useState(false);
+    const [teamName, setTeamName] = useState('');
+    const [teamLogo, setTeamLogo] = useState('');
+    const [epsList, setEpsList] = useState([]);
 
     useEffect(() => {
         loadInitialData();
@@ -37,25 +43,28 @@ const RegisterPlayer = () => {
     const loadInitialData = async () => {
         if (!teamSlug) return;
         try {
-            const [posRes, numRes, settingsRes] = await Promise.all([
+            const [posRes, numRes, settingsRes, costsRes, epsRes] = await Promise.all([
                 positionService.getAllByTeam(teamSlug),
                 uniformService.getAvailable(teamSlug),
-                settingsService.getPublic(teamSlug)
+                settingsService.getPublic(teamSlug),
+                costService.getPublic(teamSlug),
+                playerService.getEps(teamSlug)
             ]);
             setPositions(posRes.data);
             setAvailableNumbers(numRes.data);
-            setFees({ 
-                uniform: settingsRes.data.uniform_fee, 
-                registration: settingsRes.data.registration_fee 
-            });
+            setTeamName(settingsRes.data.team_name);
+            setTeamLogo(settingsRes.data.team_logo_url);
+            setCosts(costsRes.data);
+            setEpsList(epsRes.data);
         } catch (err) {
+            showNotification('Error al cargar datos del equipo', 'error');
             console.error('Error loading data', err);
             setError('Error al cargar datos del servidor');
         }
     };
 
     const handleDocCheck = async (e) => {
-        const val = e.target.value;
+        const val = e.target.value.replace(/\D/g, ''); // Strip non-digits
         setFormData({ ...formData, document_number: val });
         
         if (val.length >= 5) {
@@ -76,6 +85,11 @@ const RegisterPlayer = () => {
         }
     };
 
+    const handlePhoneChange = (e) => {
+        const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+        setFormData({ ...formData, phone: val });
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
@@ -91,14 +105,16 @@ const RegisterPlayer = () => {
         try {
             await playerService.register(teamSlug, formData);
             setSuccess('¡Jugador registrado exitosamente!');
+            setShowModal(true);
             setFormData(initialFormState);
             setDocStatus(null);
             loadInitialData(); // Refresh available numbers
             window.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (err) {
             const detailMsg = err.response?.data?.details ? ` (${err.response.data.details})` : '';
-            setError((err.response?.data?.error || 'Error al registrar jugador') + detailMsg);
-            console.error('Registration error full data:', err.response?.data);
+            const msg = (err.response?.data?.error || 'Error al registrar jugador') + detailMsg;
+            setError(msg);
+            showNotification(msg, 'error');
         } finally {
             setLoading(false);
         }
@@ -128,7 +144,7 @@ const RegisterPlayer = () => {
             )}
 
             <form onSubmit={handleSubmit} className="glass" style={{ padding: '2rem' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                <div className="grid-form">
                     
                     {/* Identification */}
                     <div className="form-group">
@@ -163,7 +179,7 @@ const RegisterPlayer = () => {
                     </div>
 
                     {/* Basic Info */}
-                    <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                    <div className="form-group grid-full-width">
                         <label className="label">Nombre Completo</label>
                         <input 
                             type="text"
@@ -181,6 +197,7 @@ const RegisterPlayer = () => {
                             className="input"
                             value={formData.address}
                             onChange={(e) => setFormData({...formData, address: e.target.value})}
+                            required
                         />
                     </div>
 
@@ -191,17 +208,22 @@ const RegisterPlayer = () => {
                             className="input"
                             value={formData.neighborhood}
                             onChange={(e) => setFormData({...formData, neighborhood: e.target.value})}
+                            required
                         />
                     </div>
 
                     <div className="form-group">
-                        <label className="label">Teléfono</label>
+                        <label className="label">Teléfono (10 dígitos)</label>
                         <input 
                             type="tel"
                             className="input"
                             value={formData.phone}
-                            onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                            onChange={handlePhoneChange}
                             required
+                            pattern="[0-9]{10}"
+                            minLength={10}
+                            maxLength={10}
+                            placeholder="Ej: 310..."
                         />
                     </div>
 
@@ -212,7 +234,15 @@ const RegisterPlayer = () => {
                             className="input"
                             value={formData.eps}
                             onChange={(e) => setFormData({...formData, eps: e.target.value})}
+                            required
+                            list="eps-list"
+                            placeholder="Selecciona o escribe..."
                         />
+                        <datalist id="eps-list">
+                            {epsList.map((eps, idx) => (
+                                <option key={idx} value={eps} />
+                            ))}
+                        </datalist>
                     </div>
 
                     {/* Uniform */}
@@ -296,6 +326,99 @@ const RegisterPlayer = () => {
                     </button>
                 </div>
             </form>
+
+            {/* Success Modal */}
+            {showModal && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: 'rgba(0,0,0,0.85)',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    zIndex: 1000,
+                    backdropFilter: 'blur(8px)'
+                }}>
+                    <div className="glass animate-fade-in" style={{ 
+                        maxWidth: '500px', 
+                        width: '90%', 
+                        padding: '2.5rem', 
+                        textAlign: 'center',
+                        border: '1px solid var(--primary)'
+                    }}>
+                        <div style={{ 
+                            width: '80px', 
+                            height: '80px', 
+                            borderRadius: '50%', 
+                            display: 'flex', 
+                            justifyContent: 'center', 
+                            alignItems: 'center', 
+                            margin: '0 auto 1.5rem',
+                            padding: teamLogo ? '0.5rem' : '0',
+                            background: teamLogo ? 'rgba(255,255,255,0.05)' : 'var(--success)',
+                            border: teamLogo ? '2px solid var(--primary)' : 'none',
+                            boxShadow: `0 0 20px ${teamLogo ? 'var(--primary-glow)' : 'var(--success)'}`
+                        }}>
+                            {teamLogo ? (
+                                <img src={teamLogo} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '50%' }} />
+                            ) : (
+                                <CheckCircle size={40} color="#fff" />
+                            )}
+                        </div>
+                        
+                        <h2 style={{ marginBottom: '0.5rem' }}>¡Bienvenido a {teamName}!</h2>
+                        <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>Tu registro ha sido procesado correctamente.</p>
+                        
+                        <div style={{ 
+                            textAlign: 'left', 
+                            background: 'rgba(0,0,0,0.2)', 
+                            padding: '1.5rem', 
+                            borderRadius: '1rem',
+                            marginBottom: '2rem',
+                            border: '1px solid var(--glass-border)'
+                        }}>
+                            <h4 style={{ marginBottom: '1rem', color: 'var(--primary)' }}>Resumen de Costos:</h4>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                {costs.map(cost => (
+                                    <div key={cost.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1rem' }}>
+                                        <span>{cost.name}</span>
+                                        <span style={{ fontWeight: 700 }}>${new Intl.NumberFormat().format(cost.amount)}</span>
+                                    </div>
+                                ))}
+                                <div style={{ 
+                                    marginTop: '0.5rem', 
+                                    paddingTop: '0.5rem', 
+                                    borderTop: '1px solid var(--glass-border)',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    fontSize: '1.1rem',
+                                    fontWeight: 800,
+                                    color: 'var(--primary)'
+                                }}>
+                                    <span>Total a Pagar</span>
+                                    <span>${new Intl.NumberFormat().format(costs.reduce((sum, c) => sum + c.amount, 0))}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="alert alert-info" style={{ textAlign: 'left', fontSize: '0.9rem', marginBottom: '2rem' }}>
+                            <Info size={18} />
+                            <span>Recuerda entregar el comprobante con el responsable del equipo.</span>
+                        </div>
+
+                        <button 
+                            className="btn btn-primary" 
+                            style={{ width: '100%', padding: '1rem' }}
+                            onClick={() => setShowModal(false)}
+                        >
+                            Entendido
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

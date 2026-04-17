@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, User, LogIn, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { adminService } from '../services/api';
+import { useNotification } from '../context/NotificationContext';
 
 const Login = () => {
     const [credentials, setCredentials] = useState({ username: '', password: '' });
@@ -9,6 +10,7 @@ const Login = () => {
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const navigate = useNavigate();
+    const { showNotification } = useNotification();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -23,10 +25,12 @@ const Login = () => {
                 localStorage.setItem('adminTeamSlug', res.data.team_slug || '');
                 localStorage.setItem('adminRole', res.data.role);
                 localStorage.setItem('adminUsername', credentials.username);
+                showNotification('Bienvenido de nuevo, ' + credentials.username, 'success');
                 navigate('/admin');
             }
         } catch (err) {
             setError('Credenciales incorrectas. Por favor, intente de nuevo.');
+            showNotification('Credenciales incorrectas', 'error');
         } finally {
             setLoading(false);
         }

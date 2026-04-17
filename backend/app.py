@@ -352,10 +352,10 @@ def get_stats():
     revenue_row = db.session.execute(text("SELECT COALESCE(SUM(payment_amount), 0) FROM players WHERE team_id = :team"), {"team": team_id}).fetchone()
     revenue = float(revenue_row[0]) if revenue_row else 0.0
     
-    settings_row = db.session.execute(text("SELECT uniform_fee, registration_fee FROM settings WHERE team_id = :team"), {"team": team_id}).fetchone()
-    u_fee = float(settings_row[0]) if settings_row else 80000.0
-    r_fee = float(settings_row[1]) if settings_row else 40000.0
-    total_expected = total_players * (u_fee + r_fee)
+    res_costs = db.session.execute(text("SELECT SUM(amount) FROM team_costs WHERE team_id = :team AND is_mandatory = 1"), {"team": team_id}).fetchone()
+    total_fee_per_player = float(res_costs[0]) if res_costs and res_costs[0] else 0
+    
+    total_expected = total_players * total_fee_per_player
     total_pending = total_expected - revenue
 
     pos_stats_sql = """
@@ -371,34 +371,49 @@ def get_stats():
     return jsonify({
         "total_players": total_players, "available_numbers": available_nums,
         "total_revenue": revenue, "total_pending": total_pending, "total_expected": total_expected,
-        "fees": {"uniform": u_fee, "registration": r_fee}, "players_by_position": by_position
+        "fees": {"total_mandatory": total_fee_per_player}, "players_by_position": by_position
     })
-
-@app.route('/api/<string:team_slug>/settings', methods=['GET'])
-def get_settings_public(team_slug):
-    team_id = get_team_id_from_slug(team_slug)
-    if not team_id: return jsonify({"error": "Team not found"}), 404
-    row = db.session.execute(text("SELECT * FROM settings WHERE team_id = :team"), {"team": team_id}).fetchone()
-    if row:
-        cols = ['team_id', 'team_name', 'team_logo_url', 'favicon_url', 'uniform_fee', 'registration_fee', 'updated_at']
-        d = dict(zip(cols, row))
-        d['uniform_fee'] = float(d['uniform_fee'])
-        d['registration_fee'] = float(d['registration_fee'])
-        return jsonify(d)
-    return jsonify({"error": "Settings not found"}), 404
 
 @app.route('/api/settings', methods=['GET'])
 def get_settings():
     team_id = request.headers.get('X-Team-ID')
     if not team_id: return jsonify({"error": "Unauthorized"}), 401
-    row = db.session.execute(text("SELECT * FROM settings WHERE team_id = :team"), {"team": team_id}).fetchone()
+    row = db.session.execute(text("SELECT team_id, team_name, team_logo_url, favicon_url, updated_at FROM settings WHERE team_id = :team"), {"team": team_id}).fetchone()
     if row:
-        cols = ['team_id', 'team_name', 'team_logo_url', 'favicon_url', 'uniform_fee', 'registration_fee', 'updated_at']
-        d = dict(zip(cols, row))
-        d['uniform_fee'] = float(d['uniform_fee'])
-        d['registration_fee'] = float(d['registration_fee'])
-        return jsonify(d)
+        cols = ['team_id', 'team_name', 'team_logo_url', 'favicon_url', 'updated_at']
+        return jsonify(dict(zip(cols, row)))
     return jsonify({"error": "Settings not found"}), 404
+
+@app.route('/api/<string:team_slug>/settings', methods=['GET'])
+def get_settings_public(team_slug):
+    team_id = get_team_id_from_slug(team_slug)
+    if not team_id: return jsonify({"error": "Team not found"}), 404
+    row = db.session.execute(text("SELECT team_id, team_name, team_logo_url, favicon_url, updated_at FROM settings WHERE team_id = :team"), {"team": team_id}).fetchone()
+    if row:
+        cols = ['team_id', 'team_name', 'team_logo_url', 'favicon_url', 'updated_at']
+        return jsonify(dict(zip(cols, row)))
+    return jsonify({"error": "Settings not found"}), 404
+
+@app.route('/api/<string:team_slug>/costs', methods=['GET'])
+def get_public_costs(team_slug):
+    team_id = get_team_id_from_slug(team_slug)
+    if not team_id: return jsonify({"error": "Team not found"}), 404
+    result = db.session.execute(text("SELECT id, item_name, amount, is_mandatory FROM team_costs WHERE team_id = :team"), {"team": team_id})
+    costs = [{"id": row[0], "name": row[1], "amount": float(row[2]), "is_mandatory": bool(row[3])} for row in result]
+    return jsonify(costs)
+
+@app.route('/api/<string:team_slug>/eps', methods=['GET'])
+def get_eps_list(team_slug):
+    team_id = get_team_id_from_slug(team_slug)
+    if not team_id: return jsonify({"error": "Team not found"}), 404
+    
+    result = db.session.execute(
+        text("SELECT DISTINCT eps FROM players WHERE team_id = :tid AND eps IS NOT NULL AND eps != '' ORDER BY eps ASC"),
+        {"tid": team_id}
+    ).fetchall()
+    
+    eps_list = [row[0] for row in result]
+    return jsonify(eps_list)
 
 @app.route('/api/settings', methods=['PUT'])
 def update_settings():
@@ -408,14 +423,11 @@ def update_settings():
         data = request.json
         db.session.execute(
             text("""UPDATE settings SET 
-                 team_name = :name, team_logo_url = :logo, favicon_url = :favicon,
-                 uniform_fee = :u_fee, registration_fee = :r_fee
+                 team_name = :name, team_logo_url = :logo, favicon_url = :favicon
                  WHERE team_id = :team"""),
             {
                 "name": data.get('team_name'), "logo": data.get('team_logo_url'),
                 "favicon": data.get('favicon_url'), 
-                "u_fee": float(data.get('uniform_fee', 0)),
-                "r_fee": float(data.get('registration_fee', 0)),
                 "team": team_id
             }
         )
@@ -448,6 +460,113 @@ def upload_logo():
 @app.route('/api/uploads/<filename>')
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# --- HELPER FUNCTIONS ---
+
+def sync_team_payments(team_id):
+    """Updates player statuses based on current mandatory costs."""
+    try:
+        # 1. Get total mandatory costs
+        res = db.session.execute(
+            text("SELECT SUM(amount) FROM team_costs WHERE team_id = :tid AND is_mandatory = 1"),
+            {"tid": team_id}
+        ).fetchone()
+        total_mandatory = float(res[0]) if res and res[0] else 0.0
+        
+        # 2. Synchronize statuses
+        # Case A: Marked as Paid but amount is less than total -> change to Abonó
+        db.session.execute(
+            text("UPDATE players SET payment_status = 'Abonó' WHERE team_id = :tid AND payment_status = 'Pagó' AND payment_amount < :total"),
+            {"tid": team_id, "total": total_mandatory}
+        )
+        
+        # Case B: Marked as Abonó but amount is now equal or greater than total -> change to Pagó
+        db.session.execute(
+            text("UPDATE players SET payment_status = 'Pagó' WHERE team_id = :tid AND payment_status = 'Abonó' AND payment_amount >= :total"),
+            {"tid": team_id, "total": total_mandatory}
+        )
+        
+        # Case C: Marked as Pendiente but has enough amount -> change to Pagó
+        db.session.execute(
+            text("UPDATE players SET payment_status = 'Pagó' WHERE team_id = :tid AND payment_status = 'Pendiente' AND payment_amount >= :total AND payment_amount > 0"),
+            {"tid": team_id, "total": total_mandatory}
+        )
+        
+        db.session.commit()
+        print(f"Synced payments for team {team_id}. Total mandatory: {total_mandatory}")
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error syncing payments: {e}")
+
+# --- TEAM COSTS ---
+
+@app.route('/api/costs', methods=['GET'])
+def get_costs():
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    result = db.session.execute(text("SELECT id, item_name, amount, is_mandatory FROM team_costs WHERE team_id = :team"), {"team": team_id})
+    costs = [{"id": row[0], "name": row[1], "amount": float(row[2]), "is_mandatory": bool(row[3])} for row in result]
+    return jsonify(costs)
+
+@app.route('/api/costs', methods=['POST'])
+def add_cost():
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    data = request.json
+    try:
+        db.session.execute(
+            text("INSERT INTO team_costs (team_id, item_name, amount, is_mandatory) VALUES (:tid, :name, :amt, :mand)"),
+            {
+                "tid": team_id,
+                "name": data.get('item_name'),
+                "amt": float(data.get('amount', 0)),
+                "mand": data.get('is_mandatory', True)
+            }
+        )
+        db.session.commit()
+        sync_team_payments(team_id)
+        log_activity(team_id, "ADD_COST", f"Added cost: {data.get('item_name')}")
+        return jsonify({"message": "Cost added"}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/costs/<int:cost_id>', methods=['DELETE'])
+def delete_cost(cost_id):
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    try:
+        db.session.execute(text("DELETE FROM team_costs WHERE id = :id AND team_id = :tid"), {"id": cost_id, "tid": team_id})
+        db.session.commit()
+        sync_team_payments(team_id)
+        log_activity(team_id, "DELETE_COST", f"Deleted cost ID: {cost_id}")
+        return jsonify({"message": "Cost deleted"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/costs/<int:cost_id>', methods=['PUT'])
+def update_cost(cost_id):
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    data = request.json
+    try:
+        db.session.execute(
+            text("UPDATE team_costs SET item_name = :name, amount = :amt WHERE id = :id AND team_id = :tid"),
+            {
+                "id": cost_id,
+                "tid": team_id,
+                "name": data.get('item_name'),
+                "amt": float(data.get('amount', 0))
+            }
+        )
+        db.session.commit()
+        sync_team_payments(team_id)
+        log_activity(team_id, "UPDATE_COST", f"Updated cost: {data.get('item_name')} (ID: {cost_id})")
+        return jsonify({"message": "Cost updated"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/login', methods=['POST'])
 def login():

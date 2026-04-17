@@ -98,9 +98,18 @@ CREATE TABLE IF NOT EXISTS settings (
     team_name VARCHAR(100) DEFAULT 'TeamManager',
     team_logo_url TEXT,
     favicon_url TEXT,
-    uniform_fee DECIMAL(10, 2) DEFAULT 80000.00,
-    registration_fee DECIMAL(10, 2) DEFAULT 40000.00,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
+);
+
+-- 9. Costs table (per team)
+CREATE TABLE IF NOT EXISTS team_costs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    team_id INT NOT NULL,
+    item_name VARCHAR(100) NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL,
+    is_mandatory BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
 );
 
@@ -139,5 +148,10 @@ DELIMITER ;
 CALL seed_team_numbers(1);
 
 -- Default Settings
-INSERT INTO settings (team_id, team_name, uniform_fee, registration_fee) 
-VALUES (1, 'Real Florida FC', 80000.00, 40000.00);
+INSERT INTO settings (team_id, team_name) 
+VALUES (1, 'Real Florida FC');
+
+-- Default Costs for team 1
+INSERT INTO team_costs (team_id, item_name, amount) VALUES 
+(1, 'Inscripción', 40000.00),
+(1, 'Uniforme', 80000.00);
