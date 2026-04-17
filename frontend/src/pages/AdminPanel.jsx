@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, PieChart, Activity, RefreshCcw, LogOut, Edit2, Save, X, DollarSign, Palette, Settings, Users } from 'lucide-react';
+import { Plus, Trash2, PieChart, Activity, RefreshCcw, LogOut, Edit2, Save, X, DollarSign, Palette, Settings, Users, Trophy } from 'lucide-react';
 import { adminService, positionService, settingsService } from '../services/api';
 
 const AdminPanel = () => {
@@ -13,7 +13,10 @@ const AdminPanel = () => {
     const [editingName, setEditingName] = useState('');
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
-    const [activeTab, setActiveTab] = useState('stats'); // 'stats', 'finances', 'branding'
+    const [adminRole, setAdminRole] = useState(localStorage.getItem('adminRole') || 'admin');
+    const [activeTab, setActiveTab] = useState(localStorage.getItem('adminRole') === 'superadmin' ? 'teams' : 'stats');
+    const [teams, setTeams] = useState([]);
+    const [newTeam, setNewTeam] = useState({ name: '', slug: '', admin_username: '', admin_password: '' });
     const [settings, setSettings] = useState({
         team_name: '',
         team_logo_url: '',
@@ -25,16 +28,25 @@ const AdminPanel = () => {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [statsRes, logsRes, posRes, settingsRes] = await Promise.all([
-                adminService.getStats(),
-                adminService.getLogs(),
-                positionService.getAll(),
-                settingsService.get()
-            ]);
-            setStats(statsRes.data);
-            setLogs(logsRes.data);
-            setPositions(posRes.data);
-            setSettings(settingsRes.data);
+            if (adminRole === 'superadmin') {
+                const teamsRes = await adminService.getTeams();
+                setTeams(teamsRes.data);
+            }
+
+            // Only load team-specific data if there is a team associated
+            const teamId = localStorage.getItem('adminTeamId');
+            if (teamId) {
+                const [statsRes, logsRes, posRes, settingsRes] = await Promise.all([
+                    adminService.getStats(),
+                    adminService.getLogs(),
+                    positionService.getAll(),
+                    settingsService.get()
+                ]);
+                setStats(statsRes.data);
+                setLogs(logsRes.data);
+                setPositions(posRes.data);
+                setSettings(settingsRes.data);
+            }
         } catch (err) {
             console.error('Error loading admin data', err);
         } finally {
@@ -110,6 +122,18 @@ const AdminPanel = () => {
         }
     };
 
+    const handleCreateTeam = async (e) => {
+        e.preventDefault();
+        try {
+            await adminService.createTeam(newTeam);
+            alert('Equipo y administrador creados con éxito');
+            setNewTeam({ name: '', slug: '', admin_username: '', admin_password: '' });
+            loadData();
+        } catch (err) {
+            alert(err.response?.data?.error || 'Error al crear equipo');
+        }
+    };
+
     const handleLogoUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -155,25 +179,125 @@ const AdminPanel = () => {
                 <>
                     {/* Tabs Navigation */}
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '1rem' }}>
-                <button 
-                    className={`btn ${activeTab === 'stats' ? 'btn-primary' : 'btn-secondary'}`} 
-                    onClick={() => setActiveTab('stats')}
-                >
-                    <Activity size={18} /> Estadísticas y Logs
-                </button>
-                <button 
-                    className={`btn ${activeTab === 'finances' ? 'btn-primary' : 'btn-secondary'}`} 
-                    onClick={() => setActiveTab('finances')}
-                >
-                    <DollarSign size={18} /> Tablero de Recaudo
-                </button>
-                <button 
-                    className={`btn ${activeTab === 'branding' ? 'btn-primary' : 'btn-secondary'}`} 
-                    onClick={() => setActiveTab('branding')}
-                >
-                    <Palette size={18} /> Personalización y Precios
-                </button>
+                {adminRole === 'superadmin' && (
+                    <button 
+                        className={`btn ${activeTab === 'teams' ? 'btn-primary' : 'btn-secondary'}`} 
+                        onClick={() => setActiveTab('teams')}
+                    >
+                        <Trophy size={18} /> Gestión de Equipos
+                    </button>
+                )}
+                {localStorage.getItem('adminTeamId') && (
+                    <>
+                        <button 
+                            className={`btn ${activeTab === 'stats' ? 'btn-primary' : 'btn-secondary'}`} 
+                            onClick={() => setActiveTab('stats')}
+                        >
+                            <Activity size={18} /> Estadísticas y Logs
+                        </button>
+                        <button 
+                            className={`btn ${activeTab === 'finances' ? 'btn-primary' : 'btn-secondary'}`} 
+                            onClick={() => setActiveTab('finances')}
+                        >
+                            <DollarSign size={18} /> Tablero de Recaudo
+                        </button>
+                        <button 
+                            className={`btn ${activeTab === 'branding' ? 'btn-primary' : 'btn-secondary'}`} 
+                            onClick={() => setActiveTab('branding')}
+                        >
+                            <Palette size={18} /> Personalización y Precios
+                        </button>
+                    </>
+                )}
             </div>
+
+            {activeTab === 'teams' && adminRole === 'superadmin' && (
+                <div className="animate-fade-in">
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+                        <div>
+                            <h3 style={{ marginBottom: '1.5rem' }}>Crear Nuevo Equipo</h3>
+                            <form onSubmit={handleCreateTeam} className="glass" style={{ padding: '2rem' }}>
+                                <div className="form-group">
+                                    <label className="label">Nombre del Equipo</label>
+                                    <input 
+                                        type="text" 
+                                        className="input" 
+                                        placeholder="Ej: Junior FC" 
+                                        value={newTeam.name}
+                                        onChange={(e) => setNewTeam({...newTeam, name: e.target.value})}
+                                        required
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="label">Slug (URL)</label>
+                                    <input 
+                                        type="text" 
+                                        className="input" 
+                                        placeholder="Ej: junior" 
+                                        value={newTeam.slug}
+                                        onChange={(e) => setNewTeam({...newTeam, slug: e.target.value.toLowerCase().replace(/\s+/g, '-')})}
+                                        required
+                                    />
+                                    <small style={{ color: 'var(--text-muted)' }}>URL: localhost:3000/{newTeam.slug || '...'}</small>
+                                </div>
+                                <hr style={{ margin: '1.5rem 0', opacity: 0.1 }} />
+                                <div className="form-group">
+                                    <label className="label">Usuario Administrador</label>
+                                    <input 
+                                        type="text" 
+                                        className="input" 
+                                        placeholder="Username" 
+                                        value={newTeam.admin_username}
+                                        onChange={(e) => setNewTeam({...newTeam, admin_username: e.target.value})}
+                                        required
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="label">Contraseña Administrador</label>
+                                    <input 
+                                        type="password" 
+                                        className="input" 
+                                        placeholder="Password" 
+                                        value={newTeam.admin_password}
+                                        onChange={(e) => setNewTeam({...newTeam, admin_password: e.target.value})}
+                                        required
+                                    />
+                                </div>
+                                <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>
+                                    <Plus size={18} /> Crear Equipo e Inicializar
+                                </button>
+                            </form>
+                        </div>
+                        <div>
+                            <h3 style={{ marginBottom: '1.5rem' }}>Equipos Existentes</h3>
+                            <div className="glass table-container">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Nombre</th>
+                                            <th>Link de Registro</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {teams.map(team => (
+                                            <tr key={team.id}>
+                                                <td>{team.id}</td>
+                                                <td style={{ fontWeight: 600 }}>{team.name}</td>
+                                                <td style={{ fontSize: '0.85rem' }}>
+                                                    <a href={`/${team.slug}`} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)' }}>
+                                                        /{team.slug}
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {activeTab === 'stats' && (
                 <div className="animate-fade-in">

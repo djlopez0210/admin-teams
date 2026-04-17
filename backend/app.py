@@ -5,6 +5,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from sqlalchemy import text
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -27,15 +28,19 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # Helper function to Log Activity
-def log_activity(action, details=None):
+def log_activity(team_id, action, details=None):
     try:
         db.session.execute(
-            text("INSERT INTO activity_logs (action, details) VALUES (:action, :details)"),
-            {"action": action, "details": details}
+            text("INSERT INTO activity_logs (team_id, action, details) VALUES (:team, :action, :details)"),
+            {"team": team_id, "action": action, "details": details}
         )
         db.session.commit()
     except Exception as e:
         print(f"Error logging activity: {e}")
+
+def get_team_id_from_slug(slug):
+    result = db.session.execute(text("SELECT id FROM teams WHERE slug = :slug"), {"slug": slug}).fetchone()
+    return result[0] if result else None
 
 # Routes
 
@@ -49,22 +54,34 @@ def health_check():
 
 # --- POSITIONS ---
 
+@app.route('/api/<string:team_slug>/positions', methods=['GET'])
+def get_positions(team_slug):
+    team_id = get_team_id_from_slug(team_slug)
+    if not team_id: return jsonify({"error": "Team not found"}), 404
+    result = db.session.execute(text("SELECT id, name FROM positions WHERE team_id = :team"), {"team": team_id})
+    positions = [{"id": row[0], "name": row[1]} for row in result]
+    return jsonify(positions)
+
 @app.route('/api/positions', methods=['GET'])
-def get_positions():
-    result = db.session.execute(text("SELECT id, name FROM positions"))
+def get_positions_admin():
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    result = db.session.execute(text("SELECT id, name FROM positions WHERE team_id = :team"), {"team": team_id})
     positions = [{"id": row[0], "name": row[1]} for row in result]
     return jsonify(positions)
 
 @app.route('/api/positions', methods=['POST'])
 def create_position():
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
     data = request.json
     name = data.get('name')
     if not name:
         return jsonify({"error": "Name is required"}), 400
     try:
-        db.session.execute(text("INSERT INTO positions (name) VALUES (:name)"), {"name": name})
+        db.session.execute(text("INSERT INTO positions (team_id, name) VALUES (:team, :name)"), {"team": team_id, "name": name})
         db.session.commit()
-        log_activity("CREATE_POSITION", f"Created position: {name}")
+        log_activity(team_id, "CREATE_POSITION", f"Created position: {name}")
         return jsonify({"message": "Position created"}), 201
     except Exception as e:
         db.session.rollback()
@@ -72,10 +89,12 @@ def create_position():
 
 @app.route('/api/positions/<int:pos_id>', methods=['DELETE'])
 def delete_position(pos_id):
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
     try:
-        db.session.execute(text("DELETE FROM positions WHERE id = :id"), {"id": pos_id})
+        db.session.execute(text("DELETE FROM positions WHERE id = :id AND team_id = :team"), {"id": pos_id, "team": team_id})
         db.session.commit()
-        log_activity("DELETE_POSITION", f"Deleted position ID: {pos_id}")
+        log_activity(team_id, "DELETE_POSITION", f"Deleted position ID: {pos_id}")
         return jsonify({"message": "Position deleted"})
     except Exception as e:
         db.session.rollback()
@@ -83,17 +102,19 @@ def delete_position(pos_id):
 
 @app.route('/api/positions/<int:pos_id>', methods=['PUT'])
 def update_position(pos_id):
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
     data = request.json
     name = data.get('name')
     if not name:
         return jsonify({"error": "Name is required"}), 400
     try:
         db.session.execute(
-            text("UPDATE positions SET name = :name WHERE id = :id"),
-            {"name": name, "id": pos_id}
+            text("UPDATE positions SET name = :name WHERE id = :id AND team_id = :team"),
+            {"name": name, "id": pos_id, "team": team_id}
         )
         db.session.commit()
-        log_activity("UPDATE_POSITION", f"Updated position ID {pos_id} to: {name}")
+        log_activity(team_id, "UPDATE_POSITION", f"Updated position ID {pos_id} to: {name}")
         return jsonify({"message": "Position updated"})
     except Exception as e:
         db.session.rollback()
@@ -101,30 +122,36 @@ def update_position(pos_id):
 
 # --- UNIFORM NUMBERS ---
 
-@app.route('/api/uniform-numbers/available', methods=['GET'])
-def get_available_numbers():
-    result = db.session.execute(text("SELECT number FROM uniform_numbers WHERE is_available = TRUE ORDER BY number"))
+@app.route('/api/<string:team_slug>/uniform-numbers/available', methods=['GET'])
+def get_available_numbers(team_slug):
+    team_id = get_team_id_from_slug(team_slug)
+    if not team_id: return jsonify({"error": "Team not found"}), 404
+    result = db.session.execute(text("SELECT number FROM uniform_numbers WHERE team_id = :team AND is_available = TRUE ORDER BY number"), {"team": team_id})
     numbers = [row[0] for row in result]
     return jsonify(numbers)
 
 @app.route('/api/uniform-numbers', methods=['GET'])
 def get_all_numbers():
-    result = db.session.execute(text("SELECT number, is_available FROM uniform_numbers ORDER BY number"))
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    result = db.session.execute(text("SELECT number, is_available FROM uniform_numbers WHERE team_id = :team ORDER BY number"), {"team": team_id})
     numbers = [{"number": row[0], "is_available": bool(row[1])} for row in result]
     return jsonify(numbers)
 
 # --- PLAYERS ---
 
-@app.route('/api/players/check-document', methods=['POST'])
-def check_document():
+@app.route('/api/<string:team_slug>/players/check-document', methods=['POST'])
+def check_document(team_slug):
+    team_id = get_team_id_from_slug(team_slug)
+    if not team_id: return jsonify({"error": "Team not found"}), 404
     data = request.json
     doc_number = data.get('document_number')
     if not doc_number:
         return jsonify({"error": "Document number is required"}), 400
     
     result = db.session.execute(
-        text("SELECT last_registration_date FROM players WHERE document_number = :doc"),
-        {"doc": doc_number}
+        text("SELECT last_registration_date FROM players WHERE team_id = :team AND document_number = :doc"),
+        {"team": team_id, "doc": doc_number}
     ).fetchone()
     
     if not result:
@@ -145,8 +172,10 @@ def check_document():
             "message": "Puede volver a registrarse y actualizar sus datos."
         }), 200
 
-@app.route('/api/players', methods=['POST'])
-def register_player():
+@app.route('/api/<string:team_slug>/players', methods=['POST'])
+def register_player(team_slug):
+    team_id = get_team_id_from_slug(team_slug)
+    if not team_id: return jsonify({"error": "Team not found"}), 404
     try:
         data = request.json or {}
         doc_num = data.get('document_number')
@@ -167,19 +196,18 @@ def register_player():
         secondary_pos_id = sanitize_int(data.get('secondary_position_id'))
         uniform_num = sanitize_int(data.get('uniform_number'))
         
-        # New payment fields
-        payment_status = data.get('payment_status') or 'Pendiente'
-        payment_amount = float(data.get('payment_amount') or 0)
+        # Default payment fields for public registration
+        payment_status = 'Pendiente'
+        payment_amount = 0.0
 
         if not uniform_num or not primary_pos_id:
             return jsonify({"error": "Número de uniforme y posición principal son requeridos"}), 400
 
         # 1. Check existing
-        sql_check = "SELECT id, last_registration_date, uniform_number FROM players WHERE document_number = :doc"
-        existing_row = db.session.execute(text(sql_check), {"doc": doc_num}).fetchone()
+        sql_check = "SELECT id, last_registration_date, uniform_number FROM players WHERE team_id = :team AND document_number = :doc"
+        existing_row = db.session.execute(text(sql_check), {"team": team_id, "doc": doc_num}).fetchone()
         
         if existing_row:
-            # Row mapping (using indices to be 100% safe across SQLAlchemy versions)
             player_id = existing_row[0]
             last_reg = existing_row[1]
             old_uniform = existing_row[2]
@@ -191,21 +219,19 @@ def register_player():
             # History logic
             curr_row = db.session.execute(text("SELECT * FROM players WHERE id = :id"), {"id": player_id}).fetchone()
             if curr_row:
-                # Based on init.sql order: 0:id, 1:doc_type... 11:p2, 12:pay_stat, 13:pay_amt, 14:last_reg
                 db.session.execute(
                     text("""INSERT INTO player_history 
-                         (player_id, document_number, full_name, uniform_number, primary_position_id, secondary_position_id, payment_status, payment_amount, registered_date)
-                         VALUES (:pid, :doc, :name, :unif, :p1, :p2, :ps, :pa, :reg)"""),
+                         (team_id, player_id, document_number, full_name, uniform_number, primary_position_id, secondary_position_id, payment_status, payment_amount, registered_date)
+                         VALUES (:team, :pid, :doc, :name, :unif, :p1, :p2, :ps, :pa, :reg)"""),
                     {
-                        "pid": player_id, "doc": curr_row[2], "name": curr_row[3],
-                        "unif": curr_row[9], "p1": curr_row[10], 
-                        "p2": curr_row[11], "ps": curr_row[12], "pa": curr_row[13], "reg": curr_row[14]
+                        "team": team_id, "pid": player_id, "doc": curr_row[3], "name": curr_row[4],
+                        "unif": curr_row[10], "p1": curr_row[11], 
+                        "p2": curr_row[12], "ps": curr_row[13], "pa": curr_row[14], "reg": curr_row[15]
                     }
                 )
             
-            # Free old uniform if changed
             if uniform_num != old_uniform:
-                db.session.execute(text("UPDATE uniform_numbers SET is_available = TRUE WHERE number = :n"), {"n": old_uniform})
+                db.session.execute(text("UPDATE uniform_numbers SET is_available = TRUE WHERE team_id = :team AND number = :n"), {"team": team_id, "n": old_uniform})
 
             # Update
             db.session.execute(
@@ -213,90 +239,81 @@ def register_player():
                      document_type = :type, full_name = :name, address = :addr, neighborhood = :barrio,
                      phone = :phone, eps = :eps, uniform_size = :size, uniform_number = :unif,
                      primary_position_id = :p1, secondary_position_id = :p2, 
-                     payment_status = :ps, payment_amount = :pa, last_registration_date = CURRENT_TIMESTAMP
-                     WHERE id = :id"""),
+                     last_registration_date = CURRENT_TIMESTAMP
+                     WHERE id = :id AND team_id = :team"""),
                 {
                     "type": doc_type, "name": full_name, "addr": data.get('address'), "barrio": data.get('neighborhood'),
                     "phone": data.get('phone'), "eps": data.get('eps'), "size": unif_size, 
                     "unif": uniform_num, "p1": primary_pos_id, "p2": secondary_pos_id,
-                    "ps": payment_status, "pa": payment_amount, "id": player_id
+                    "id": player_id, "team": team_id
                 }
             )
         else:
             # New
             db.session.execute(
                 text("""INSERT INTO players 
-                     (document_type, document_number, full_name, address, neighborhood, phone, eps, uniform_size, uniform_number, primary_position_id, secondary_position_id, payment_status, payment_amount)
-                     VALUES (:type, :doc, :name, :addr, :barrio, :phone, :eps, :size, :unif, :p1, :p2, :ps, :pa)"""),
+                     (team_id, document_type, document_number, full_name, address, neighborhood, phone, eps, uniform_size, uniform_number, primary_position_id, secondary_position_id, payment_status, payment_amount)
+                     VALUES (:team, :type, :doc, :name, :addr, :barrio, :phone, :eps, :size, :unif, :p1, :p2, :ps, :pa)"""),
                 {
-                    "type": doc_type, "doc": doc_num, "name": full_name, "addr": data.get('address'), "barrio": data.get('neighborhood'),
+                    "team": team_id, "type": doc_type, "doc": doc_num, "name": full_name, "addr": data.get('address'), "barrio": data.get('neighborhood'),
                     "phone": data.get('phone'), "eps": data.get('eps'), "size": unif_size, 
                     "unif": uniform_num, "p1": primary_pos_id, "p2": secondary_pos_id,
                     "ps": payment_status, "pa": payment_amount
                 }
             )
         
-        # Mark occupied
-        db.session.execute(text("UPDATE uniform_numbers SET is_available = FALSE WHERE number = :n"), {"n": uniform_num})
-        
+        db.session.execute(text("UPDATE uniform_numbers SET is_available = FALSE WHERE team_id = :team AND number = :n"), {"team": team_id, "n": uniform_num})
         db.session.commit()
-        log_activity("REGISTER_PLAYER", f"Player {full_name} registered (Doc: {doc_num})")
+        log_activity(team_id, "REGISTER_PLAYER", f"Player {full_name} registered (Doc: {doc_num})")
         return jsonify({"message": "Player registered successfully"}), 201
-
     except Exception as e:
         db.session.rollback()
-        error_msg = f"{type(e).__name__}: {str(e)}"
-        print(f"CRITICAL ERROR: {error_msg}")
-        return jsonify({"error": "Error interno del servidor", "details": error_msg}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/players', methods=['GET'])
 def list_players():
-    # Join with positions for names
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    
     sql = """
         SELECT p.*, pos1.name as primary_pos_name, pos2.name as secondary_pos_name
         FROM players p
         JOIN positions pos1 ON p.primary_position_id = pos1.id
         LEFT JOIN positions pos2 ON p.secondary_position_id = pos2.id
+        WHERE p.team_id = :team
         ORDER BY p.created_at DESC
     """
-    result = db.session.execute(text(sql))
-    players = []
-    # Fetch result set as dictionaries
+    result = db.session.execute(text(sql), {"team": team_id})
     columns = result.keys()
-    for row in result:
-        players.append(dict(zip(columns, row)))
+    players = [dict(zip(columns, row)) for row in result]
     return jsonify(players)
-
-@app.route('/api/players/<int:p_id>', methods=['GET'])
-def get_player(p_id):
-    result = db.session.execute(text("SELECT * FROM players WHERE id = :id"), {"id": p_id}).fetchone()
-    if not result:
-        return jsonify({"error": "Not found"}), 404
-    columns = db.session.execute(text("SELECT * FROM players WHERE id = :id"), {"id": p_id}).keys()
-    return jsonify(dict(zip(columns, result)))
 
 @app.route('/api/players/<int:p_id>', methods=['DELETE'])
 def delete_player(p_id):
-    player = db.session.execute(text("SELECT uniform_number FROM players WHERE id = :id"), {"id": p_id}).fetchone()
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    
+    player = db.session.execute(text("SELECT uniform_number FROM players WHERE id = :id AND team_id = :team"), {"id": p_id, "team": team_id}).fetchone()
     if player:
         unif = player[0]
-        db.session.execute(text("UPDATE uniform_numbers SET is_available = TRUE WHERE number = :n"), {"n": unif})
-        db.session.execute(text("DELETE FROM players WHERE id = :id"), {"id": p_id})
+        db.session.execute(text("UPDATE uniform_numbers SET is_available = TRUE WHERE team_id = :team AND number = :n"), {"team": team_id, "n": unif})
+        db.session.execute(text("DELETE FROM players WHERE id = :id AND team_id = :team"), {"id": p_id, "team": team_id})
         db.session.commit()
-        log_activity("DELETE_PLAYER", f"Deleted player ID: {p_id}")
+        log_activity(team_id, "DELETE_PLAYER", f"Deleted player ID: {p_id}")
         return jsonify({"message": "Player deleted"})
     return jsonify({"error": "Player not found"}), 404
 
 @app.route('/api/players/<int:p_id>/history', methods=['GET'])
 def get_player_history(p_id):
-    # History by document number linked to player
-    player = db.session.execute(text("SELECT document_number FROM players WHERE id = :id"), {"id": p_id}).fetchone()
-    if not player:
-        return jsonify({"error": "Player not found"}), 404
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    
+    player = db.session.execute(text("SELECT document_number FROM players WHERE id = :id AND team_id = :team"), {"id": p_id, "team": team_id}).fetchone()
+    if not player: return jsonify({"error": "Player not found"}), 404
     
     result = db.session.execute(
-        text("SELECT * FROM player_history WHERE document_number = :doc ORDER BY registered_date DESC"),
-        {"doc": player[0]}
+        text("SELECT * FROM player_history WHERE team_id = :team AND document_number = :doc ORDER BY registered_date DESC"),
+        {"team": team_id, "doc": player[0]}
     )
     columns = result.keys()
     history = [dict(zip(columns, row)) for row in result]
@@ -304,17 +321,19 @@ def get_player_history(p_id):
 
 @app.route('/api/players/<int:p_id>/payment', methods=['PATCH'])
 def update_payment(p_id):
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
     try:
         data = request.json
         status = data.get('payment_status')
         amount = data.get('payment_amount')
         
         db.session.execute(
-            text("UPDATE players SET payment_status = :status, payment_amount = :amount WHERE id = :id"),
-            {"status": status, "amount": amount, "id": p_id}
+            text("UPDATE players SET payment_status = :status, payment_amount = :amount WHERE id = :id AND team_id = :team"),
+            {"status": status, "amount": amount, "id": p_id, "team": team_id}
         )
         db.session.commit()
-        log_activity("UPDATE_PAYMENT", f"Updated payment for player ID {p_id} to {status} (${amount})")
+        log_activity(team_id, "UPDATE_PAYMENT", f"Updated payment for player ID {p_id} to {status} (${amount})")
         return jsonify({"message": "Payment updated successfully"}), 200
     except Exception as e:
         db.session.rollback()
@@ -324,72 +343,85 @@ def update_payment(p_id):
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    total_players = db.session.execute(text("SELECT COUNT(*) FROM players")).scalar()
-    available_nums = db.session.execute(text("SELECT COUNT(*) FROM uniform_numbers WHERE is_available = TRUE")).scalar()
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
     
-    # Revenue calculations
-    revenue_row = db.session.execute(text("SELECT COALESCE(SUM(payment_amount), 0) FROM players")).fetchone()
+    total_players = db.session.execute(text("SELECT COUNT(*) FROM players WHERE team_id = :team"), {"team": team_id}).scalar()
+    available_nums = db.session.execute(text("SELECT COUNT(*) FROM uniform_numbers WHERE team_id = :team AND is_available = TRUE"), {"team": team_id}).scalar()
+    
+    revenue_row = db.session.execute(text("SELECT COALESCE(SUM(payment_amount), 0) FROM players WHERE team_id = :team"), {"team": team_id}).fetchone()
     revenue = float(revenue_row[0]) if revenue_row else 0.0
     
-    # Fetch fees from settings
-    settings_row = db.session.execute(text("SELECT uniform_fee, registration_fee FROM settings WHERE id = 1")).fetchone()
+    settings_row = db.session.execute(text("SELECT uniform_fee, registration_fee FROM settings WHERE team_id = :team"), {"team": team_id}).fetchone()
     u_fee = float(settings_row[0]) if settings_row else 80000.0
     r_fee = float(settings_row[1]) if settings_row else 40000.0
-    total_fee_per_player = u_fee + r_fee
-    
-    total_expected = total_players * total_fee_per_player
+    total_expected = total_players * (u_fee + r_fee)
     total_pending = total_expected - revenue
 
     pos_stats_sql = """
         SELECT pos.name, COUNT(p.id) as count
         FROM positions pos
-        LEFT JOIN players p ON pos.id = p.primary_position_id
+        LEFT JOIN players p ON pos.id = p.primary_position_id AND p.team_id = :team
+        WHERE pos.team_id = :team
         GROUP BY pos.id
     """
-    pos_stats = db.session.execute(text(pos_stats_sql))
+    pos_stats = db.session.execute(text(pos_stats_sql), {"team": team_id})
     by_position = {row[0]: row[1] for row in pos_stats}
     
     return jsonify({
-        "total_players": total_players,
-        "available_numbers": available_nums,
-        "total_revenue": revenue,
-        "total_pending": total_pending,
-        "total_expected": total_expected,
-        "fees": {"uniform": u_fee, "registration": r_fee},
-        "players_by_position": by_position
+        "total_players": total_players, "available_numbers": available_nums,
+        "total_revenue": revenue, "total_pending": total_pending, "total_expected": total_expected,
+        "fees": {"uniform": u_fee, "registration": r_fee}, "players_by_position": by_position
     })
+
+@app.route('/api/<string:team_slug>/settings', methods=['GET'])
+def get_settings_public(team_slug):
+    team_id = get_team_id_from_slug(team_slug)
+    if not team_id: return jsonify({"error": "Team not found"}), 404
+    row = db.session.execute(text("SELECT * FROM settings WHERE team_id = :team"), {"team": team_id}).fetchone()
+    if row:
+        cols = ['team_id', 'team_name', 'team_logo_url', 'favicon_url', 'uniform_fee', 'registration_fee', 'updated_at']
+        d = dict(zip(cols, row))
+        d['uniform_fee'] = float(d['uniform_fee'])
+        d['registration_fee'] = float(d['registration_fee'])
+        return jsonify(d)
+    return jsonify({"error": "Settings not found"}), 404
 
 @app.route('/api/settings', methods=['GET'])
 def get_settings():
-    row = db.session.execute(text("SELECT * FROM settings WHERE id = 1")).fetchone()
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    row = db.session.execute(text("SELECT * FROM settings WHERE team_id = :team"), {"team": team_id}).fetchone()
     if row:
-        cols = ['id', 'team_name', 'team_logo_url', 'favicon_url', 'uniform_fee', 'registration_fee', 'updated_at']
-        settings_dict = dict(zip(cols, row))
-        # Ensure decimals are floats for JSON
-        settings_dict['uniform_fee'] = float(settings_dict['uniform_fee'])
-        settings_dict['registration_fee'] = float(settings_dict['registration_fee'])
-        return jsonify(settings_dict)
+        cols = ['team_id', 'team_name', 'team_logo_url', 'favicon_url', 'uniform_fee', 'registration_fee', 'updated_at']
+        d = dict(zip(cols, row))
+        d['uniform_fee'] = float(d['uniform_fee'])
+        d['registration_fee'] = float(d['registration_fee'])
+        return jsonify(d)
     return jsonify({"error": "Settings not found"}), 404
 
 @app.route('/api/settings', methods=['PUT'])
 def update_settings():
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
     try:
         data = request.json
         db.session.execute(
             text("""UPDATE settings SET 
                  team_name = :name, team_logo_url = :logo, favicon_url = :favicon,
                  uniform_fee = :u_fee, registration_fee = :r_fee
-                 WHERE id = 1"""),
+                 WHERE team_id = :team"""),
             {
                 "name": data.get('team_name'), "logo": data.get('team_logo_url'),
                 "favicon": data.get('favicon_url'), 
                 "u_fee": float(data.get('uniform_fee', 0)),
-                "r_fee": float(data.get('registration_fee', 0))
+                "r_fee": float(data.get('registration_fee', 0)),
+                "team": team_id
             }
         )
         db.session.commit()
-        log_activity("UPDATE_SETTINGS", "Application settings updated by admin")
-        return jsonify({"message": "Settings updated successfully"}), 200
+        log_activity(team_id, "UPDATE_SETTINGS", "Settings updated by admin")
+        return jsonify({"message": "Settings updated"}), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
@@ -419,20 +451,143 @@ def uploaded_file(filename):
 
 @app.route('/api/login', methods=['POST'])
 def login():
-    data = request.json
-    username = data.get('username')
-    password = data.get('password')
-    
-    if username == 'admin' and password == 'admin321':
-        log_activity("ADMIN_LOGIN", "Admin successfully logged in")
-        return jsonify({"message": "Login successful", "authenticated": True}), 200
-    
-    log_activity("FAILED_LOGIN", f"Failed login attempt with username: {username}")
-    return jsonify({"error": "Invalid credentials"}), 401
+    try:
+        data = request.json or {}
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return jsonify({"error": "Username and password required"}), 400
+
+        # Query user and team with LEFT JOIN to support superadmins (who have no team_id)
+        sql = """
+            SELECT u.id, u.password_hash, u.team_id, t.slug, u.role, u.username
+            FROM users u 
+            LEFT JOIN teams t ON u.team_id = t.id 
+            WHERE u.username = :user
+        """
+        result = db.session.execute(text(sql), {"user": username}).fetchone()
+        
+        if not result:
+            print(f"Login failed: User {username} not found")
+            return jsonify({"error": "Invalid credentials"}), 401
+            
+        user_id = result[0]
+        stored_hash = result[1]
+        team_id = result[2]
+        team_slug = result[3]
+        role = result[4]
+        db_username = result[5]
+
+        # Case 1: Match with Hash
+        is_correct = check_password_hash(stored_hash, password)
+        
+        # Case 2: Emergency Fallback / Self-Healing (if stored as plain text)
+        if not is_correct and stored_hash == password:
+            is_correct = True
+            
+        if is_correct:
+            # Self-heal: update to a proper hash if it was plain text
+            if stored_hash == password:
+                new_hash = generate_password_hash(password)
+                db.session.execute(
+                    text("UPDATE users SET password_hash = :h WHERE id = :id"),
+                    {"h": new_hash, "id": user_id}
+                )
+                db.session.commit()
+                print(f"Self-healed hash for user {db_username}")
+
+            if team_id:
+                log_activity(team_id, "ADMIN_LOGIN", f"User {username} logged in")
+                
+            return jsonify({
+                "message": "Login successful",
+                "authenticated": True,
+                "team_id": team_id,
+                "team_slug": team_slug,
+                "role": role
+            }), 200
+
+        print(f"Login failed: Incorrect password for {username}")
+        return jsonify({"error": "Invalid credentials"}), 401
+    except Exception as e:
+        print(f"CRITICAL LOGIN ERROR: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+# --- SUPER ADMIN TEAM MANAGEMENT ---
+
+@app.route('/api/teams', methods=['GET'])
+def list_teams():
+    # Only superadmins should see all teams
+    # (In a real app, verify role via token, for now check header or params)
+    result = db.session.execute(text("SELECT * FROM teams ORDER BY id ASC"))
+    columns = result.keys()
+    teams = [dict(zip(columns, row)) for row in result]
+    return jsonify(teams)
+
+@app.route('/api/teams', methods=['POST'])
+def create_team():
+    try:
+        data = request.json
+        name = data.get('name')
+        slug = data.get('slug')
+        admin_user = data.get('admin_username')
+        admin_pass = data.get('admin_password')
+        
+        if not all([name, slug, admin_user, admin_pass]):
+            return jsonify({"error": "All fields are required"}), 400
+            
+        # 1. Create Team
+        res = db.session.execute(
+            text("INSERT INTO teams (name, slug) VALUES (:name, :slug)"),
+            {"name": name, "slug": slug}
+        )
+        team_id = res.lastrowid
+        
+        # 2. Create Team Admin
+        pass_hash = generate_password_hash(admin_pass)
+        db.session.execute(
+            text("INSERT INTO users (team_id, username, password_hash, role) VALUES (:tid, :user, :hash, 'admin')"),
+            {"tid": team_id, "user": admin_user, "hash": pass_hash}
+        )
+        
+        # 3. Initialize Settings
+        db.session.execute(
+            text("INSERT INTO settings (team_id, team_name) VALUES (:tid, :name)"),
+            {"tid": team_id, "name": name}
+        )
+        
+        # 4. Initialize Positions (Default set)
+        default_positions = [
+            'Portero', 'Defensa Central', 'Lateral Izquierdo', 'Lateral Derecho',
+            'Mediocampista Defensivo', 'Mediocampista Central', 'Mediocampista Ofensivo',
+            'Extremo Izquierdo', 'Extremo Derecho', 'Delantero', 'Delantero Móvil'
+        ]
+        for pos_name in default_positions:
+            db.session.execute(
+                text("INSERT INTO positions (team_id, name) VALUES (:tid, :name)"),
+                {"tid": team_id, "name": pos_name}
+            )
+            
+        # 5. Initialize Uniform Numbers (1-50)
+        for i in range(1, 51):
+            db.session.execute(
+                text("INSERT INTO uniform_numbers (team_id, number) VALUES (:tid, :n)"),
+                {"tid": team_id, "n": i}
+            )
+            
+        db.session.commit()
+        return jsonify({"message": f"Team {name} created successfully with admin {admin_user}", "team_id": team_id}), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
-    result = db.session.execute(text("SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT 50"))
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    result = db.session.execute(text("SELECT * FROM activity_logs WHERE team_id = :team ORDER BY created_at DESC LIMIT 50"), {"team": team_id})
     columns = result.keys()
     logs = [dict(zip(columns, row)) for row in result]
     return jsonify(logs)

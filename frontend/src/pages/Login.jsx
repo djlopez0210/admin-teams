@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Lock, User, LogIn, AlertCircle } from 'lucide-react';
+import { Lock, User, LogIn, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { adminService } from '../services/api';
 
 const Login = () => {
     const [credentials, setCredentials] = useState({ username: '', password: '' });
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
     const navigate = useNavigate();
 
     const handleSubmit = async (e) => {
@@ -18,6 +19,10 @@ const Login = () => {
             const res = await adminService.login(credentials);
             if (res.data.authenticated) {
                 localStorage.setItem('adminAuthenticated', 'true');
+                localStorage.setItem('adminTeamId', res.data.team_id || '');
+                localStorage.setItem('adminTeamSlug', res.data.team_slug || '');
+                localStorage.setItem('adminRole', res.data.role);
+                localStorage.setItem('adminUsername', credentials.username);
                 navigate('/admin');
             }
         } catch (err) {
@@ -65,13 +70,28 @@ const Login = () => {
                         <div style={{ position: 'relative' }}>
                             <Lock size={18} color="var(--text-muted)" style={{ position: 'absolute', left: '1rem', top: '0.85rem' }} />
                             <input 
-                                type="password" 
+                                type={showPassword ? "text" : "password"} 
                                 className="input" 
-                                style={{ paddingLeft: '3rem' }}
+                                style={{ paddingLeft: '3rem', paddingRight: '3rem' }}
                                 value={credentials.password}
                                 onChange={(e) => setCredentials({ ...credentials, password: e.target.value })}
                                 required
                             />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                style={{ 
+                                    position: 'absolute', 
+                                    right: '1rem', 
+                                    top: '0.85rem', 
+                                    background: 'none', 
+                                    border: 'none', 
+                                    color: 'var(--text-muted)', 
+                                    cursor: 'pointer' 
+                                }}
+                            >
+                                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                            </button>
                         </div>
                     </div>
 

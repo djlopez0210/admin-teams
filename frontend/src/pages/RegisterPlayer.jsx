@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Save, XCircle, CheckCircle, Info } from 'lucide-react';
 import { playerService, positionService, uniformService, settingsService } from '../services/api';
+import { useParams } from 'react-router-dom';
 
 const RegisterPlayer = () => {
+    const { teamSlug } = useParams();
     const initialFormState = {
         document_type: 'Cédula de Ciudadanía',
         document_number: '',
@@ -33,11 +35,12 @@ const RegisterPlayer = () => {
     }, []);
 
     const loadInitialData = async () => {
+        if (!teamSlug) return;
         try {
             const [posRes, numRes, settingsRes] = await Promise.all([
-                positionService.getAll(),
-                uniformService.getAvailable(),
-                settingsService.get()
+                positionService.getAllByTeam(teamSlug),
+                uniformService.getAvailable(teamSlug),
+                settingsService.getPublic(teamSlug)
             ]);
             setPositions(posRes.data);
             setAvailableNumbers(numRes.data);
@@ -57,7 +60,7 @@ const RegisterPlayer = () => {
         
         if (val.length >= 5) {
             try {
-                const res = await playerService.checkDocument(val);
+                const res = await playerService.checkDocument(teamSlug, val);
                 setDocStatus(res.data);
                 if (res.data.status === 'bloqueado') {
                     setError(res.data.message);
@@ -86,7 +89,7 @@ const RegisterPlayer = () => {
         }
 
         try {
-            await playerService.register(formData);
+            await playerService.register(teamSlug, formData);
             setSuccess('¡Jugador registrado exitosamente!');
             setFormData(initialFormState);
             setDocStatus(null);
