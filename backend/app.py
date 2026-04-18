@@ -788,8 +788,8 @@ def create_team():
                 {"tid": team_id, "name": pos_name}
             )
             
-        # 5. Initialize Uniform Numbers (1-50)
-        for i in range(1, 51):
+        # 5. Initialize Uniform Numbers (0-100)
+        for i in range(0, 101):
             db.session.execute(
                 text("INSERT INTO uniform_numbers (team_id, number) VALUES (:tid, :n)"),
                 {"tid": team_id, "n": i}

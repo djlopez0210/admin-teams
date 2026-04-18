@@ -150,7 +150,7 @@ const AdminPanel = () => {
     const handleLogoUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        
+
         setUploading(true);
         try {
             const res = await settingsService.uploadLogo(file);
@@ -166,7 +166,7 @@ const AdminPanel = () => {
     const handleFaviconUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        
+
         setUploading(true);
         try {
             const res = await settingsService.uploadLogo(file);
@@ -258,445 +258,445 @@ const AdminPanel = () => {
             ) : (
                 <>
                     {/* Tabs Navigation */}
-            <div className="tabs-container">
-                {adminRole === 'superadmin' && (
-                    <button 
-                        className={`btn ${activeTab === 'teams' ? 'btn-primary' : 'btn-secondary'}`} 
-                        onClick={() => setActiveTab('teams')}
-                        style={{ whiteSpace: 'nowrap' }}
-                    >
-                        <Trophy size={18} /> Equipos
-                    </button>
-                )}
-                {localStorage.getItem('adminTeamId') && (
-                    <>
-                        <button 
-                            className={`btn ${activeTab === 'stats' ? 'btn-primary' : 'btn-secondary'}`} 
-                            onClick={() => setActiveTab('stats')}
-                            style={{ whiteSpace: 'nowrap' }}
-                        >
-                            <Activity size={18} /> Estadísticas
-                        </button>
-                        <button 
-                            className={`btn ${activeTab === 'finances' ? 'btn-primary' : 'btn-secondary'}`} 
-                            onClick={() => setActiveTab('finances')}
-                            style={{ whiteSpace: 'nowrap' }}
-                        >
-                            <DollarSign size={18} /> Recaudo
-                        </button>
-                        <button 
-                            className={`btn ${activeTab === 'branding' ? 'btn-primary' : 'btn-secondary'}`} 
-                            onClick={() => setActiveTab('branding')}
-                            style={{ whiteSpace: 'nowrap' }}
-                        >
-                            <Palette size={18} /> Personalización
-                        </button>
-                    </>
-                )}
-            </div>
+                    <div className="tabs-container">
+                        {adminRole === 'superadmin' && (
+                            <button
+                                className={`btn ${activeTab === 'teams' ? 'btn-primary' : 'btn-secondary'}`}
+                                onClick={() => setActiveTab('teams')}
+                                style={{ whiteSpace: 'nowrap' }}
+                            >
+                                <Trophy size={18} /> Equipos
+                            </button>
+                        )}
+                        {localStorage.getItem('adminTeamId') && (
+                            <>
+                                <button
+                                    className={`btn ${activeTab === 'stats' ? 'btn-primary' : 'btn-secondary'}`}
+                                    onClick={() => setActiveTab('stats')}
+                                    style={{ whiteSpace: 'nowrap' }}
+                                >
+                                    <Activity size={18} /> Estadísticas
+                                </button>
+                                <button
+                                    className={`btn ${activeTab === 'finances' ? 'btn-primary' : 'btn-secondary'}`}
+                                    onClick={() => setActiveTab('finances')}
+                                    style={{ whiteSpace: 'nowrap' }}
+                                >
+                                    <DollarSign size={18} /> Recaudo
+                                </button>
+                                <button
+                                    className={`btn ${activeTab === 'branding' ? 'btn-primary' : 'btn-secondary'}`}
+                                    onClick={() => setActiveTab('branding')}
+                                    style={{ whiteSpace: 'nowrap' }}
+                                >
+                                    <Palette size={18} /> Personalización
+                                </button>
+                            </>
+                        )}
+                    </div>
 
-            {activeTab === 'teams' && adminRole === 'superadmin' && (
-                <div className="animate-fade-in">
-                    <div className="grid-form" style={{ gap: '2rem' }}>
-                        <div>
-                            <h3 style={{ marginBottom: '1.5rem' }}>Crear Nuevo Equipo</h3>
-                            <form onSubmit={handleCreateTeam} className="glass" style={{ padding: '2rem' }}>
-                                <div className="form-group">
-                                    <label className="label">Nombre del Equipo</label>
-                                    <input 
-                                        type="text" 
-                                        className="input" 
-                                        placeholder="Ej: Junior FC" 
-                                        value={newTeam.name}
-                                        onChange={(e) => setNewTeam({...newTeam, name: e.target.value})}
-                                        required
-                                    />
+                    {activeTab === 'teams' && adminRole === 'superadmin' && (
+                        <div className="animate-fade-in">
+                            <div className="grid-form" style={{ gap: '2rem' }}>
+                                <div>
+                                    <h3 style={{ marginBottom: '1.5rem' }}>Crear Nuevo Equipo</h3>
+                                    <form onSubmit={handleCreateTeam} className="glass" style={{ padding: '2rem' }}>
+                                        <div className="form-group">
+                                            <label className="label">Nombre del Equipo</label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                placeholder="Ej: Junior FC"
+                                                value={newTeam.name}
+                                                onChange={(e) => setNewTeam({ ...newTeam, name: e.target.value })}
+                                                required
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">Slug (URL)</label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                placeholder="Ej: junior"
+                                                value={newTeam.slug}
+                                                onChange={(e) => setNewTeam({ ...newTeam, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
+                                                required
+                                            />
+                                            <small style={{ color: 'var(--text-muted)' }}>URL: localhost:3000/{newTeam.slug || '...'}</small>
+                                        </div>
+                                        <hr style={{ margin: '1.5rem 0', opacity: 0.1 }} />
+                                        <div className="form-group">
+                                            <label className="label">Usuario Administrador</label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                placeholder="Username"
+                                                value={newTeam.admin_username}
+                                                onChange={(e) => setNewTeam({ ...newTeam, admin_username: e.target.value })}
+                                                required
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">Contraseña Administrador</label>
+                                            <input
+                                                type="password"
+                                                className="input"
+                                                placeholder="Password"
+                                                value={newTeam.admin_password}
+                                                onChange={(e) => setNewTeam({ ...newTeam, admin_password: e.target.value })}
+                                                required
+                                            />
+                                        </div>
+                                        <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>
+                                            <Plus size={18} /> Crear Equipo e Inicializar
+                                        </button>
+                                    </form>
                                 </div>
-                                <div className="form-group">
-                                    <label className="label">Slug (URL)</label>
-                                    <input 
-                                        type="text" 
-                                        className="input" 
-                                        placeholder="Ej: junior" 
-                                        value={newTeam.slug}
-                                        onChange={(e) => setNewTeam({...newTeam, slug: e.target.value.toLowerCase().replace(/\s+/g, '-')})}
-                                        required
-                                    />
-                                    <small style={{ color: 'var(--text-muted)' }}>URL: localhost:3000/{newTeam.slug || '...'}</small>
+                                <div>
+                                    <h3 style={{ marginBottom: '1.5rem' }}>Equipos Existentes</h3>
+                                    <div className="glass table-container">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>ID</th>
+                                                    <th>Nombre</th>
+                                                    <th>Link de Registro</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {teams.map(team => (
+                                                    <tr key={team.id}>
+                                                        <td>{team.id}</td>
+                                                        <td style={{ fontWeight: 600 }}>{team.name}</td>
+                                                        <td style={{ fontSize: '0.85rem' }}>
+                                                            <a href={`/${team.slug}`} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)' }}>
+                                                                /{team.slug}
+                                                            </a>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
-                                <hr style={{ margin: '1.5rem 0', opacity: 0.1 }} />
-                                <div className="form-group">
-                                    <label className="label">Usuario Administrador</label>
-                                    <input 
-                                        type="text" 
-                                        className="input" 
-                                        placeholder="Username" 
-                                        value={newTeam.admin_username}
-                                        onChange={(e) => setNewTeam({...newTeam, admin_username: e.target.value})}
-                                        required
-                                    />
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'stats' && (
+                        <div className="animate-fade-in">
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1.5rem', marginBottom: '3rem' }}>
+                                <div className="glass" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                    <div style={{ background: 'rgba(79, 172, 254, 0.2)', padding: '1rem', borderRadius: '1rem' }}>
+                                        <PieChart size={32} color="var(--primary)" />
+                                    </div>
+                                    <div>
+                                        <div className="label">Total Jugadores</div>
+                                        <div style={{ fontSize: '2rem', fontWeight: 800 }}>{stats?.total_players || 0}</div>
+                                    </div>
                                 </div>
-                                <div className="form-group">
-                                    <label className="label">Contraseña Administrador</label>
-                                    <input 
-                                        type="password" 
-                                        className="input" 
-                                        placeholder="Password" 
-                                        value={newTeam.admin_password}
-                                        onChange={(e) => setNewTeam({...newTeam, admin_password: e.target.value})}
-                                        required
-                                    />
+                                <div className="glass" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                    <div style={{ background: 'rgba(34, 197, 94, 0.2)', padding: '1rem', borderRadius: '1rem' }}>
+                                        <Activity size={32} color="var(--success)" />
+                                    </div>
+                                    <div>
+                                        <div className="label">Números Disponibles</div>
+                                        <div style={{ fontSize: '2rem', fontWeight: 800 }}>{stats?.available_numbers || 0}</div>
+                                    </div>
                                 </div>
-                                <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>
-                                    <Plus size={18} /> Crear Equipo e Inicializar
+                            </div>
+
+                            <div className="grid-form" style={{ gap: '2rem' }}>
+                                {/* Positions Management */}
+                                <div>
+                                    <h3 style={{ marginBottom: '1.5rem' }}>Gestionar Posiciones</h3>
+                                    <form onSubmit={handleAddPosition} className="glass" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
+                                        <div className="form-group">
+                                            <label className="label">Nueva Posición</label>
+                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                <input
+                                                    type="text"
+                                                    className="input"
+                                                    placeholder="Ej: Volante mixto"
+                                                    value={newPosition}
+                                                    onChange={(e) => setNewPosition(e.target.value)}
+                                                />
+                                                <button type="submit" className="btn btn-primary" style={{ padding: '0.75rem' }}>
+                                                    <Plus size={20} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </form>
+
+                                    <div className="glass" style={{ padding: '1rem' }}>
+                                        <ul style={{ listStyle: 'none' }}>
+                                            {positions.map(pos => (
+                                                <li key={pos.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', borderBottom: '1px solid var(--glass-border)' }}>
+                                                    {editingId === pos.id ? (
+                                                        <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
+                                                            <input
+                                                                type="text"
+                                                                className="input"
+                                                                style={{ padding: '0.5rem' }}
+                                                                value={editingName}
+                                                                onChange={(e) => setEditingName(e.target.value)}
+                                                                autoFocus
+                                                            />
+                                                            <button className="btn btn-primary" style={{ padding: '0.5rem' }} onClick={() => handleSaveEdit(pos.id)}>
+                                                                <Save size={16} />
+                                                            </button>
+                                                            <button className="btn btn-secondary" style={{ padding: '0.5rem' }} onClick={handleCancelEdit}>
+                                                                <X size={16} />
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            <span>{pos.name}</span>
+                                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                                <button
+                                                                    onClick={() => handleStartEdit(pos)}
+                                                                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                                                                    title="Editar"
+                                                                >
+                                                                    <Edit2 size={16} />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleDeletePosition(pos.id)}
+                                                                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                                                                    title="Eliminar"
+                                                                >
+                                                                    <Trash2 size={16} />
+                                                                </button>
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                {/* Audit Logs */}
+                                <div>
+                                    <h3 style={{ marginBottom: '1.5rem' }}>Logs de Actividad</h3>
+                                    <div className="glass table-container" style={{ maxHeight: '500px', overflowY: 'auto' }}>
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Acción</th>
+                                                    <th>Detalles</th>
+                                                    <th>Fecha</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {logs.map(log => (
+                                                    <tr key={log.id}>
+                                                        <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                                                            <span style={{
+                                                                color: log.action.includes('DELETE') ? 'var(--error)' : 'var(--primary)'
+                                                            }}>
+                                                                {log.action}
+                                                            </span>
+                                                        </td>
+                                                        <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{log.details}</td>
+                                                        <td style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{new Date(log.created_at).toLocaleString()}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'finances' && (
+                        <div className="animate-fade-in">
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+                                <div className="glass" style={{ padding: '2rem', textAlign: 'center' }}>
+                                    <div className="label">Total Recaudado</div>
+                                    <div style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--success)', margin: '0.5rem 0' }}>
+                                        ${stats?.total_revenue?.toLocaleString()}
+                                    </div>
+                                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Ingresos reales en caja</div>
+                                </div>
+                                <div className="glass" style={{ padding: '2rem', textAlign: 'center' }}>
+                                    <div className="label">Pendiente por Cobrar</div>
+                                    <div style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--error)', margin: '0.5rem 0' }}>
+                                        ${stats?.total_pending?.toLocaleString()}
+                                    </div>
+                                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Basado en cargos obligatorios</div>
+                                </div>
+                                <div className="glass" style={{ padding: '2rem', textAlign: 'center' }}>
+                                    <div className="label">Proyección Total</div>
+                                    <div style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--primary)', margin: '0.5rem 0' }}>
+                                        ${stats?.total_expected?.toLocaleString()}
+                                    </div>
+                                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Meta final de recaudo</div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'branding' && (
+                        <div className="animate-fade-in glass" style={{ padding: '2rem' }}>
+                            <form onSubmit={handleUpdateSettings}>
+                                <div className="grid-form" style={{ gap: '2rem' }}>
+                                    <div>
+                                        <h3 style={{ marginBottom: '1.5rem' }}>Identidad del Equipo</h3>
+                                        <div className="form-group">
+                                            <label className="label">Nombre del Equipo</label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                value={settings.team_name}
+                                                onChange={(e) => setSettings({ ...settings, team_name: e.target.value })}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">Logo del Equipo</label>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                                {settings.team_logo_url && (
+                                                    <div className="glass" style={{ padding: '1rem', textAlign: 'center' }}>
+                                                        <img src={settings.team_logo_url} alt="Preview" style={{ maxHeight: '100px', maxWidth: '100%', borderRadius: '8px' }} />
+                                                    </div>
+                                                )}
+                                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                    <input
+                                                        type="text"
+                                                        className="input"
+                                                        placeholder="URL del logo"
+                                                        value={settings.team_logo_url}
+                                                        onChange={(e) => setSettings({ ...settings, team_logo_url: e.target.value })}
+                                                    />
+                                                    <label className="btn btn-secondary" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', whiteSpace: 'nowrap' }}>
+                                                        <Settings size={16} /> {uploading ? 'Subiendo...' : 'Subir Imagen'}
+                                                        <input type="file" hidden accept="image/*" onChange={handleLogoUpload} disabled={uploading} />
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">URL del Favicon (.ico)</label>
+                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                <input
+                                                    type="text"
+                                                    className="input"
+                                                    placeholder="URL del favicon"
+                                                    value={settings.favicon_url}
+                                                    onChange={(e) => setSettings({ ...settings, favicon_url: e.target.value })}
+                                                />
+                                                <label className="btn btn-secondary" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', whiteSpace: 'nowrap' }}>
+                                                    <Settings size={16} /> {uploading ? 'Subiendo...' : 'Subir Favicon'}
+                                                    <input type="file" hidden accept="image/x-icon,image/png,image/jpeg" onChange={handleFaviconUpload} disabled={uploading} />
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                            <DollarSign size={20} /> Costos y Tarifas Dinámicas
+                                        </h3>
+
+                                        {/* Add Cost Form */}
+                                        <div className="glass" style={{ padding: '1rem', marginBottom: '1.5rem', border: '1px dashed var(--glass-border)' }}>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.5rem' }}>
+                                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                                    <input
+                                                        type="text"
+                                                        className="input"
+                                                        placeholder="Concepto (ej: Mensualidad)"
+                                                        value={newCost.item_name}
+                                                        onChange={(e) => setNewCost({ ...newCost, item_name: e.target.value })}
+                                                    />
+                                                </div>
+                                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                                    <input
+                                                        type="number"
+                                                        className="input"
+                                                        placeholder="Valor ($)"
+                                                        value={newCost.amount}
+                                                        onChange={(e) => setNewCost({ ...newCost, amount: e.target.value })}
+                                                    />
+                                                </div>
+                                                <button type="button" className="btn btn-primary" onClick={handleAddCost} style={{ padding: '0.75rem' }}>
+                                                    <Plus size={20} />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Costs List */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                            {costs.length === 0 ? (
+                                                <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1rem' }}>No hay costos configurados.</p>
+                                            ) : (
+                                                costs.map(cost => (
+                                                    <div key={cost.id} className="glass" style={{ padding: '1rem', border: editingCostId === cost.id ? '1px solid var(--primary)' : 'none' }}>
+                                                        {editingCostId === cost.id ? (
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                                                <input
+                                                                    type="text"
+                                                                    className="input"
+                                                                    value={editingCostName}
+                                                                    onChange={(e) => setEditingCostName(e.target.value)}
+                                                                    placeholder="Concepto"
+                                                                />
+                                                                <input
+                                                                    type="number"
+                                                                    className="input"
+                                                                    value={editingCostAmount}
+                                                                    onChange={(e) => setEditingCostAmount(e.target.value)}
+                                                                    placeholder="Valor"
+                                                                />
+                                                                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                                                                    <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => handleSaveEditCost(cost.id)}>
+                                                                        <Save size={16} /> Guardar
+                                                                    </button>
+                                                                    <button className="btn btn-secondary" style={{ flex: 1 }} onClick={handleCancelEditCost}>
+                                                                        <X size={16} /> Cancelar
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                <div>
+                                                                    <div style={{ fontWeight: 600 }}>{cost.name}</div>
+                                                                    <div style={{ color: 'var(--primary)', fontWeight: 800 }}>${new Intl.NumberFormat().format(cost.amount)}</div>
+                                                                </div>
+                                                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleStartEditCost(cost)}
+                                                                        className="btn btn-secondary"
+                                                                        style={{ padding: '0.5rem' }}
+                                                                        title="Editar"
+                                                                    >
+                                                                        <Edit2 size={16} />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleDeleteCost(cost.id)}
+                                                                        className="btn btn-secondary"
+                                                                        style={{ padding: '0.5rem', color: 'var(--error)' }}
+                                                                        title="Eliminar"
+                                                                    >
+                                                                        <Trash2 size={16} />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                                <button type="submit" className="btn btn-primary" style={{ marginTop: '2rem', width: '200px' }}>
+                                    <Save size={18} /> Guardar Identidad
                                 </button>
                             </form>
                         </div>
-                        <div>
-                            <h3 style={{ marginBottom: '1.5rem' }}>Equipos Existentes</h3>
-                            <div className="glass table-container">
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th>ID</th>
-                                            <th>Nombre</th>
-                                            <th>Link de Registro</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {teams.map(team => (
-                                            <tr key={team.id}>
-                                                <td>{team.id}</td>
-                                                <td style={{ fontWeight: 600 }}>{team.name}</td>
-                                                <td style={{ fontSize: '0.85rem' }}>
-                                                    <a href={`/${team.slug}`} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)' }}>
-                                                        /{team.slug}
-                                                    </a>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {activeTab === 'stats' && (
-                <div className="animate-fade-in">
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1.5rem', marginBottom: '3rem' }}>
-                        <div className="glass" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                            <div style={{ background: 'rgba(79, 172, 254, 0.2)', padding: '1rem', borderRadius: '1rem' }}>
-                                <PieChart size={32} color="var(--primary)" />
-                            </div>
-                            <div>
-                                <div className="label">Total Jugadores</div>
-                                <div style={{ fontSize: '2rem', fontWeight: 800 }}>{stats?.total_players || 0}</div>
-                            </div>
-                        </div>
-                        <div className="glass" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                            <div style={{ background: 'rgba(34, 197, 94, 0.2)', padding: '1rem', borderRadius: '1rem' }}>
-                                <Activity size={32} color="var(--success)" />
-                            </div>
-                            <div>
-                                <div className="label">Números Disponibles</div>
-                                <div style={{ fontSize: '2rem', fontWeight: 800 }}>{stats?.available_numbers || 0}</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="grid-form" style={{ gap: '2rem' }}>
-                        {/* Positions Management */}
-                        <div>
-                            <h3 style={{ marginBottom: '1.5rem' }}>Gestionar Posiciones</h3>
-                            <form onSubmit={handleAddPosition} className="glass" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
-                                <div className="form-group">
-                                    <label className="label">Nueva Posición</label>
-                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                        <input 
-                                            type="text" 
-                                            className="input" 
-                                            placeholder="Ej: Volante mixto" 
-                                            value={newPosition}
-                                            onChange={(e) => setNewPosition(e.target.value)}
-                                        />
-                                        <button type="submit" className="btn btn-primary" style={{ padding: '0.75rem' }}>
-                                            <Plus size={20} />
-                                        </button>
-                                    </div>
-                                </div>
-                            </form>
-
-                            <div className="glass" style={{ padding: '1rem' }}>
-                                <ul style={{ listStyle: 'none' }}>
-                                    {positions.map(pos => (
-                                        <li key={pos.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', borderBottom: '1px solid var(--glass-border)' }}>
-                                            {editingId === pos.id ? (
-                                                <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
-                                                    <input 
-                                                        type="text" 
-                                                        className="input" 
-                                                        style={{ padding: '0.5rem' }}
-                                                        value={editingName}
-                                                        onChange={(e) => setEditingName(e.target.value)}
-                                                        autoFocus
-                                                    />
-                                                    <button className="btn btn-primary" style={{ padding: '0.5rem' }} onClick={() => handleSaveEdit(pos.id)}>
-                                                        <Save size={16} />
-                                                    </button>
-                                                    <button className="btn btn-secondary" style={{ padding: '0.5rem' }} onClick={handleCancelEdit}>
-                                                        <X size={16} />
-                                                    </button>
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    <span>{pos.name}</span>
-                                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                        <button 
-                                                            onClick={() => handleStartEdit(pos)}
-                                                            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                                                            title="Editar"
-                                                        >
-                                                            <Edit2 size={16} />
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => handleDeletePosition(pos.id)}
-                                                            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                                                            title="Eliminar"
-                                                        >
-                                                            <Trash2 size={16} />
-                                                        </button>
-                                                    </div>
-                                                </>
-                                            )}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        </div>
-
-                        {/* Audit Logs */}
-                        <div>
-                            <h3 style={{ marginBottom: '1.5rem' }}>Logs de Actividad</h3>
-                            <div className="glass table-container" style={{ maxHeight: '500px', overflowY: 'auto' }}>
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th>Acción</th>
-                                            <th>Detalles</th>
-                                            <th>Fecha</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {logs.map(log => (
-                                            <tr key={log.id}>
-                                                <td style={{ fontWeight: 600, fontSize: '0.85rem' }}>
-                                                    <span style={{ 
-                                                        color: log.action.includes('DELETE') ? 'var(--error)' : 'var(--primary)'
-                                                    }}>
-                                                        {log.action}
-                                                    </span>
-                                                </td>
-                                                <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{log.details}</td>
-                                                <td style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{new Date(log.created_at).toLocaleString()}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {activeTab === 'finances' && (
-                <div className="animate-fade-in">
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-                        <div className="glass" style={{ padding: '2rem', textAlign: 'center' }}>
-                            <div className="label">Total Recaudado</div>
-                            <div style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--success)', margin: '0.5rem 0' }}>
-                                ${stats?.total_revenue?.toLocaleString()}
-                            </div>
-                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Ingresos reales en caja</div>
-                        </div>
-                        <div className="glass" style={{ padding: '2rem', textAlign: 'center' }}>
-                            <div className="label">Pendiente por Cobrar</div>
-                            <div style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--error)', margin: '0.5rem 0' }}>
-                                ${stats?.total_pending?.toLocaleString()}
-                            </div>
-                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Basado en cargos obligatorios</div>
-                        </div>
-                        <div className="glass" style={{ padding: '2rem', textAlign: 'center' }}>
-                            <div className="label">Proyección Total</div>
-                            <div style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--primary)', margin: '0.5rem 0' }}>
-                                ${stats?.total_expected?.toLocaleString()}
-                            </div>
-                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Meta final de recaudo</div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {activeTab === 'branding' && (
-                <div className="animate-fade-in glass" style={{ padding: '2rem' }}>
-                    <form onSubmit={handleUpdateSettings}>
-                        <div className="grid-form" style={{ gap: '2rem' }}>
-                            <div>
-                                <h3 style={{ marginBottom: '1.5rem' }}>Identidad del Equipo</h3>
-                                <div className="form-group">
-                                    <label className="label">Nombre del Equipo</label>
-                                    <input 
-                                        type="text" 
-                                        className="input" 
-                                        value={settings.team_name}
-                                        onChange={(e) => setSettings({...settings, team_name: e.target.value})}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="label">Logo del Equipo</label>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                                        {settings.team_logo_url && (
-                                            <div className="glass" style={{ padding: '1rem', textAlign: 'center' }}>
-                                                <img src={settings.team_logo_url} alt="Preview" style={{ maxHeight: '100px', maxWidth: '100%', borderRadius: '8px' }} />
-                                            </div>
-                                        )}
-                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                            <input 
-                                                type="text" 
-                                                className="input" 
-                                                placeholder="URL del logo"
-                                                value={settings.team_logo_url}
-                                                onChange={(e) => setSettings({...settings, team_logo_url: e.target.value})}
-                                            />
-                                            <label className="btn btn-secondary" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', whiteSpace: 'nowrap' }}>
-                                                <Settings size={16} /> {uploading ? 'Subiendo...' : 'Subir Imagen'}
-                                                <input type="file" hidden accept="image/*" onChange={handleLogoUpload} disabled={uploading} />
-                                            </label>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="form-group">
-                                    <label className="label">URL del Favicon (.ico)</label>
-                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                        <input 
-                                            type="text" 
-                                            className="input" 
-                                            placeholder="URL del favicon"
-                                            value={settings.favicon_url}
-                                            onChange={(e) => setSettings({...settings, favicon_url: e.target.value})}
-                                        />
-                                        <label className="btn btn-secondary" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', whiteSpace: 'nowrap' }}>
-                                            <Settings size={16} /> {uploading ? 'Subiendo...' : 'Subir Favicon'}
-                                            <input type="file" hidden accept="image/x-icon,image/png,image/jpeg" onChange={handleFaviconUpload} disabled={uploading} />
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-                            <div>
-                                <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                    <DollarSign size={20} /> Costos y Tarifas Dinámicas
-                                </h3>
-
-                                {/* Add Cost Form */}
-                                <div className="glass" style={{ padding: '1rem', marginBottom: '1.5rem', border: '1px dashed var(--glass-border)' }}>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.5rem' }}>
-                                        <div className="form-group" style={{ marginBottom: 0 }}>
-                                            <input 
-                                                type="text" 
-                                                className="input" 
-                                                placeholder="Concepto (ej: Mensualidad)" 
-                                                value={newCost.item_name}
-                                                onChange={(e) => setNewCost({ ...newCost, item_name: e.target.value })}
-                                            />
-                                        </div>
-                                        <div className="form-group" style={{ marginBottom: 0 }}>
-                                            <input 
-                                                type="number" 
-                                                className="input" 
-                                                placeholder="Valor ($)" 
-                                                value={newCost.amount}
-                                                onChange={(e) => setNewCost({ ...newCost, amount: e.target.value })}
-                                            />
-                                        </div>
-                                        <button type="button" className="btn btn-primary" onClick={handleAddCost} style={{ padding: '0.75rem' }}>
-                                            <Plus size={20} />
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Costs List */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                                    {costs.length === 0 ? (
-                                        <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1rem' }}>No hay costos configurados.</p>
-                                    ) : (
-                                        costs.map(cost => (
-                                            <div key={cost.id} className="glass" style={{ padding: '1rem', border: editingCostId === cost.id ? '1px solid var(--primary)' : 'none' }}>
-                                                {editingCostId === cost.id ? (
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                                        <input 
-                                                            type="text" 
-                                                            className="input" 
-                                                            value={editingCostName}
-                                                            onChange={(e) => setEditingCostName(e.target.value)}
-                                                            placeholder="Concepto"
-                                                        />
-                                                        <input 
-                                                            type="number" 
-                                                            className="input" 
-                                                            value={editingCostAmount}
-                                                            onChange={(e) => setEditingCostAmount(e.target.value)}
-                                                            placeholder="Valor"
-                                                        />
-                                                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                                                            <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => handleSaveEditCost(cost.id)}>
-                                                                <Save size={16} /> Guardar
-                                                            </button>
-                                                            <button className="btn btn-secondary" style={{ flex: 1 }} onClick={handleCancelEditCost}>
-                                                                <X size={16} /> Cancelar
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                        <div>
-                                                            <div style={{ fontWeight: 600 }}>{cost.name}</div>
-                                                            <div style={{ color: 'var(--primary)', fontWeight: 800 }}>${new Intl.NumberFormat().format(cost.amount)}</div>
-                                                        </div>
-                                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                            <button 
-                                                                type="button" 
-                                                                onClick={() => handleStartEditCost(cost)}
-                                                                className="btn btn-secondary" 
-                                                                style={{ padding: '0.5rem' }}
-                                                                title="Editar"
-                                                            >
-                                                                <Edit2 size={16} />
-                                                            </button>
-                                                            <button 
-                                                                type="button" 
-                                                                onClick={() => handleDeleteCost(cost.id)}
-                                                                className="btn btn-secondary" 
-                                                                style={{ padding: '0.5rem', color: 'var(--error)' }}
-                                                                title="Eliminar"
-                                                            >
-                                                                <Trash2 size={16} />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                        <button type="submit" className="btn btn-primary" style={{ marginTop: '2rem', width: '200px' }}>
-                            <Save size={18} /> Guardar Identidad
-                        </button>
-                    </form>
-                </div>
-            )}
+                    )}
                 </>
             )}
         </div>
