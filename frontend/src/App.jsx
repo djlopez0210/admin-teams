@@ -7,6 +7,7 @@ import PlayersList from './pages/PlayersList'
 import AdminPanel from './pages/AdminPanel'
 import Login from './pages/Login'
 import LandingPage from './pages/LandingPage'
+import TournamentPanel from './pages/TournamentPanel'
 import ProtectedRoute from './components/ProtectedRoute'
 import { settingsService } from './services/api'
 import { useParams, useLocation } from 'react-router-dom'
@@ -142,6 +143,7 @@ function App() {
 
           {/* Public Registration routes (Greedy param at bottom) */}
           <Route path="/:teamSlug" element={<TeamLayout isPublic={true}><RegisterPlayer /></TeamLayout>} />
+          <Route path="/:teamSlug/stats" element={<TeamLayout isPublic={true}><TournamentPanel /></TeamLayout>} />
 
           {/* Landing Page (Root) */}
           <Route path="/" element={<LandingPage />} />

@@ -13,6 +13,7 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 # Database Configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'mysql+pymysql://team_user:team_password@localhost/football_team')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.secret_key = os.getenv('SECRET_KEY', 'dev_secret_key_123')
 
 db = SQLAlchemy(app)
 
@@ -40,6 +41,10 @@ def log_activity(team_id, action, details=None):
 
 def get_team_id_from_slug(slug):
     result = db.session.execute(text("SELECT id FROM teams WHERE slug = :slug"), {"slug": slug}).fetchone()
+    return result[0] if result else None
+
+def get_tournament_id_from_slug(slug):
+    result = db.session.execute(text("SELECT id FROM tournaments WHERE slug = :slug"), {"slug": slug}).fetchone()
     return result[0] if result else None
 
 # Routes
@@ -373,6 +378,99 @@ def get_stats():
         "total_revenue": revenue, "total_pending": total_pending, "total_expected": total_expected,
         "fees": {"total_mandatory": total_fee_per_player}, "players_by_position": by_position
     })
+
+# --- TOURNAMENT ENGINE ---
+
+@app.route('/api/tournaments/<string:slug>', methods=['GET'])
+def get_tournament(slug):
+    t_id = get_tournament_id_from_slug(slug)
+    if not t_id: return jsonify({"error": "Tournament not found"}), 404
+    
+    row = db.session.execute(
+        text("SELECT id, name, slug, win_points, draw_points, loss_points, format_type FROM tournaments WHERE id = :id"),
+        {"id": t_id}
+    ).fetchone()
+    
+    if row:
+        cols = ['id', 'name', 'slug', 'win_points', 'draw_points', 'loss_points', 'format_type']
+        return jsonify(dict(zip(cols, row)))
+    return jsonify({"error": "Data not found"}), 404
+
+@app.route('/api/tournaments/<string:slug>/standings', methods=['GET'])
+def get_tournament_standings(slug):
+    t_id = get_tournament_id_from_slug(slug)
+    if not t_id: return jsonify({"error": "Tournament not found"}), 404
+    
+    # 1. Get points config
+    t_config = db.session.execute(text("SELECT win_points, draw_points, loss_points FROM tournaments WHERE id = :id"), {"id": t_id}).fetchone()
+    w_pts, d_pts, l_pts = t_config[0], t_config[1], t_config[2]
+    
+    # 2. Get all teams in tournament
+    teams_res = db.session.execute(text("SELECT id, name FROM teams WHERE tournament_id = :id"), {"id": t_id}).fetchall()
+    standings = {t[0]: {"id": t[0], "name": t[1], "pj": 0, "pg": 0, "pe": 0, "pp": 0, "gf": 0, "gc": 0, "gd": 0, "pts": 0} for t in teams_res}
+    
+    # 3. Process matches
+    matches = db.session.execute(
+        text("SELECT home_team_id, away_team_id, home_score, away_score FROM matches WHERE tournament_id = :id AND status = 'jugado'"), 
+        {"id": t_id}
+    ).fetchall()
+    
+    for m in matches:
+        h_id, a_id, h_score, a_score = m[0], m[1], m[2], m[3]
+        if h_id not in standings or a_id not in standings: continue
+        
+        standings[h_id]["pj"] += 1
+        standings[a_id]["pj"] += 1
+        standings[h_id]["gf"] += h_score
+        standings[h_id]["gc"] += a_score
+        standings[a_id]["gf"] += a_score
+        standings[a_id]["gc"] += h_score
+        standings[h_id]["gd"] = standings[h_id]["gf"] - standings[h_id]["gc"]
+        standings[a_id]["gd"] = standings[a_id]["gf"] - standings[a_id]["gc"]
+        
+        if h_score > a_score:
+            standings[h_id]["pg"] += 1
+            standings[h_id]["pts"] += w_pts
+            standings[a_id]["pp"] += 1
+            standings[a_id]["pts"] += l_pts
+        elif a_score > h_score:
+            standings[a_id]["pg"] += 1
+            standings[a_id]["pts"] += w_pts
+            standings[h_id]["pp"] += 1
+            standings[h_id]["pts"] += l_pts
+        else:
+            standings[h_id]["pe"] += 1
+            standings[h_id]["pts"] += d_pts
+            standings[a_id]["pe"] += 1
+            standings[a_id]["pts"] += d_pts
+            
+    # Sort standings: Puntos desc, GD desc, GF desc
+    sorted_standings = sorted(standings.values(), key=lambda x: (x["pts"], x["gd"], x["gf"]), reverse=True)
+    return jsonify(sorted_standings)
+
+@app.route('/api/tournaments/<string:slug>/fixtures', methods=['GET'])
+def get_tournament_fixtures(slug):
+    t_id = get_tournament_id_from_slug(slug)
+    if not t_id: return jsonify({"error": "Tournament not found"}), 404
+    
+    sql = """
+        SELECT m.id, m.round_number, m.status, m.match_date, 
+               h.name as home_name, a.name as away_name, m.home_score, m.away_score
+        FROM matches m
+        JOIN teams h ON m.home_team_id = h.id
+        JOIN teams a ON m.away_team_id = a.id
+        WHERE m.tournament_id = :id
+        ORDER BY m.round_number ASC, m.match_date ASC
+    """
+    result = db.session.execute(text(sql), {"id": t_id}).fetchall()
+    fixtures = []
+    for row in result:
+        fixtures.append({
+            "id": row[0], "round": row[1], "status": row[2], 
+            "date": row[3].isoformat() if row[3] else None,
+            "home": row[4], "away": row[5], "home_score": row[6], "away_score": row[7]
+        })
+    return jsonify(fixtures)
 
 @app.route('/api/settings', methods=['GET'])
 def get_settings():

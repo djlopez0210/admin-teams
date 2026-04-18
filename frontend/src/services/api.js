@@ -67,4 +67,10 @@ export const costService = {
     delete: (id) => api.delete(`/costs/${id}`),
 };
 
+export const tournamentService = {
+    get: (slug) => api.get(`/tournaments/${slug}`),
+    getStandings: (slug) => api.get(`/tournaments/${slug}/standings`),
+    getFixtures: (slug) => api.get(`/tournaments/${slug}/fixtures`),
+};
+
 export default api;

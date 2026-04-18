@@ -1,0 +1,47 @@
+services:
+  db:
+      image: mysql:8.0
+      container_name: football-db-prod
+      restart: always
+      environment:
+        MYSQL_DATABASE: ${MYSQL_DATABASE}
+        MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+        MYSQL_USER: ${MYSQL_USER}
+        MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      ports:
+        - "3307:3306"
+      volumes:
+        - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+        - mysql_prod_data:/var/lib/mysql
+      command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  backend:
+    build: ./backend
+    container_name: football-backend-prod
+    restart: always
+    ports:
+      - "5001:5000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      FLASK_APP: ${FLASK_APP}
+      FLASK_ENV: ${FLASK_ENV}
+      SECRET_KEY: ${SECRET_KEY}
+    volumes:
+      - ./backend/uploads:/app/uploads
+    depends_on:
+      - db
+
+  frontend:
+    build: 
+      context: ./frontend
+      args:
+        - VITE_API_URL=http://147.93.187.188:5001/api
+    container_name: football-frontend-prod
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_prod_data:
