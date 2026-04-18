@@ -538,9 +538,11 @@ def update_settings():
 
 @app.route('/api/upload-logo', methods=['POST'])
 def upload_logo():
-    if 'logo' not in request.files:
+    # Look for 'logo' or 'file' key for generic usage
+    file_key = 'logo' if 'logo' in request.files else 'file'
+    if file_key not in request.files:
         return jsonify({"error": "No file part"}), 400
-    file = request.files['logo']
+    file = request.files[file_key]
     if file.filename == '':
         return jsonify({"error": "No selected file"}), 400
     if file and allowed_file(file.filename):
@@ -550,8 +552,8 @@ def upload_logo():
         file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
         
         # We return the absolute URL as visible from the frontend
-        # Assuming the backend is at localhost:5001 and serves /uploads
-        logo_url = f"http://localhost:5001/api/uploads/{filename}"
+        # Use relative URL so it works behind proxies and with different domains
+        logo_url = f"/api/uploads/{filename}"
         return jsonify({"url": logo_url}), 200
     return jsonify({"error": "File type not allowed"}), 400
 

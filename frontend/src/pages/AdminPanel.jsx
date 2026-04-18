@@ -163,6 +163,22 @@ const AdminPanel = () => {
         }
     };
 
+    const handleFaviconUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        setUploading(true);
+        try {
+            const res = await settingsService.uploadLogo(file);
+            setSettings({ ...settings, favicon_url: res.data.url });
+            showNotification('Favicon cargado con éxito. Recuerda guardar los cambios.', 'info');
+        } catch (err) {
+            showNotification('Error al subir el favicon', 'error');
+        } finally {
+            setUploading(false);
+        }
+    };
+
     const handleAddCost = async () => {
         if (!newCost.item_name || !newCost.amount) return;
         try {
@@ -562,12 +578,19 @@ const AdminPanel = () => {
                                 </div>
                                 <div className="form-group">
                                     <label className="label">URL del Favicon (.ico)</label>
-                                    <input 
-                                        type="text" 
-                                        className="input" 
-                                        value={settings.favicon_url}
-                                        onChange={(e) => setSettings({...settings, favicon_url: e.target.value})}
-                                    />
+                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                        <input 
+                                            type="text" 
+                                            className="input" 
+                                            placeholder="URL del favicon"
+                                            value={settings.favicon_url}
+                                            onChange={(e) => setSettings({...settings, favicon_url: e.target.value})}
+                                        />
+                                        <label className="btn btn-secondary" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', whiteSpace: 'nowrap' }}>
+                                            <Settings size={16} /> {uploading ? 'Subiendo...' : 'Subir Favicon'}
+                                            <input type="file" hidden accept="image/x-icon,image/png,image/jpeg" onChange={handleFaviconUpload} disabled={uploading} />
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
                             <div>
