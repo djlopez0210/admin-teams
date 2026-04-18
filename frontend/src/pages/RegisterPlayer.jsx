@@ -35,6 +35,13 @@ const RegisterPlayer = () => {
     const [teamName, setTeamName] = useState('');
     const [teamLogo, setTeamLogo] = useState('');
     const [epsList, setEpsList] = useState([]);
+    
+    // PIN Validation State
+    const [hasPin, setHasPin] = useState(false);
+    const [pinValidated, setPinValidated] = useState(false);
+    const [pinInput, setPinInput] = useState('');
+    const [pinError, setPinError] = useState('');
+    const [validatingPin, setValidatingPin] = useState(false);
 
     useEffect(() => {
         loadInitialData();
@@ -54,12 +61,28 @@ const RegisterPlayer = () => {
             setAvailableNumbers(numRes.data);
             setTeamName(settingsRes.data.team_name);
             setTeamLogo(settingsRes.data.team_logo_url);
+            setHasPin(settingsRes.data.has_pin || false);
             setCosts(costsRes.data);
             setEpsList(epsRes.data);
         } catch (err) {
             showNotification('Error al cargar datos del equipo', 'error');
             console.error('Error loading data', err);
             setError('Error al cargar datos del servidor');
+        }
+    };
+
+    const handlePinSubmit = async (e) => {
+        e.preventDefault();
+        setValidatingPin(true);
+        setPinError('');
+        try {
+            await settingsService.validatePin(teamSlug, pinInput);
+            setPinValidated(true);
+        } catch (err) {
+            const backendError = err.response?.data?.error;
+            setPinError(backendError || 'PIN incorrecto. Intenta de nuevo.');
+        } finally {
+            setValidatingPin(false);
         }
     };
 
@@ -126,6 +149,39 @@ const RegisterPlayer = () => {
         setError('');
         setSuccess('');
     };
+
+    if (hasPin && !pinValidated) {
+        return (
+            <div className="animate-fade-in" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+                <div className="glass" style={{ padding: '3rem', maxWidth: '400px', width: '100%', textAlign: 'center' }}>
+                    <h2 style={{ marginBottom: '1rem' }}>🛡️ Acceso Restringido</h2>
+                    <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>Ingresa el PIN proporcionado por el delegado del equipo para continuar con la inscripción.</p>
+                    
+                    <form onSubmit={handlePinSubmit}>
+                        <div className="form-group">
+                            <input 
+                                type="text"
+                                className="input" 
+                                placeholder="PIN de 4 dígitos" 
+                                maxLength="4"
+                                style={{ textAlign: 'center', fontSize: '1.5rem', letterSpacing: '0.5rem', WebkitTextSecurity: 'disc' }}
+                                autoComplete="off"
+                                data-1pignore="true"
+                                data-lpignore="true"
+                                value={pinInput}
+                                onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
+                                required
+                            />
+                        </div>
+                        {pinError && <p style={{ color: 'var(--error)', fontSize: '0.85rem', marginTop: '0.5rem' }}>{pinError}</p>}
+                        <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem' }} disabled={validatingPin || pinInput.length < 4}>
+                            {validatingPin ? 'Verificando...' : 'Acceder al Formulario'}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="animate-fade-in">

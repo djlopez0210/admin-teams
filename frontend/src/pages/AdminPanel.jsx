@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, PieChart, Activity, RefreshCcw, LogOut, Edit2, Save, X, DollarSign, Palette, Settings, Users, Trophy } from 'lucide-react';
-import { adminService, positionService, settingsService, costService } from '../services/api';
+import { adminService, positionService, settingsService, costService, tournamentService } from '../services/api';
 import { useNotification } from '../context/NotificationContext';
 
 const AdminPanel = () => {
@@ -18,24 +18,38 @@ const AdminPanel = () => {
     const [adminRole, setAdminRole] = useState(localStorage.getItem('adminRole') || 'admin');
     const [activeTab, setActiveTab] = useState(localStorage.getItem('adminRole') === 'superadmin' ? 'teams' : 'stats');
     const [teams, setTeams] = useState([]);
-    const [newTeam, setNewTeam] = useState({ name: '', slug: '', admin_username: '', admin_password: '' });
+    const [newTeam, setNewTeam] = useState({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '' });
+    const [editingTeamId, setEditingTeamId] = useState(null);
     const [settings, setSettings] = useState({
         team_name: '',
         team_logo_url: '',
-        favicon_url: ''
+        favicon_url: '',
+        registration_pin: ''
     });
     const [costs, setCosts] = useState([]);
     const [newCost, setNewCost] = useState({ item_name: '', amount: '', is_mandatory: true });
     const [editingCostId, setEditingCostId] = useState(null);
     const [editingCostName, setEditingCostName] = useState('');
     const [editingCostAmount, setEditingCostAmount] = useState('');
+    const [tournaments, setTournaments] = useState([]);
+    const [newTournament, setNewTournament] = useState({ 
+        name: '', city: '', description: '', 
+        image_url: '', rules_pdf_url: '',
+        admin_username: '', admin_password: '',
+        win_points: 3, draw_points: 1, loss_points: 0 
+    });
+    const [editingTournamentId, setEditingTournamentId] = useState(null);
 
     const loadData = async () => {
         setLoading(true);
         try {
             if (adminRole === 'superadmin') {
-                const teamsRes = await adminService.getTeams();
+                const [teamsRes, tournamentsRes] = await Promise.all([
+                    adminService.getTeams(),
+                    tournamentService.getAll()
+                ]);
                 setTeams(teamsRes.data);
+                setTournaments(tournamentsRes.data);
             }
 
             // Only load team-specific data if there is a team associated
@@ -125,7 +139,8 @@ const AdminPanel = () => {
             await settingsService.update({
                 team_name: settings.team_name,
                 team_logo_url: settings.team_logo_url,
-                favicon_url: settings.favicon_url
+                favicon_url: settings.favicon_url,
+                registration_pin: settings.registration_pin
             });
             showNotification('Identidad del equipo actualizada con éxito', 'success');
             loadData();
@@ -138,12 +153,103 @@ const AdminPanel = () => {
     const handleCreateTeam = async (e) => {
         e.preventDefault();
         try {
-            await adminService.createTeam(newTeam);
-            showNotification('Equipo y administrador creados con éxito', 'success');
-            setNewTeam({ name: '', slug: '', admin_username: '', admin_password: '' });
+            if (editingTeamId) {
+                await adminService.updateTeam(editingTeamId, newTeam);
+                showNotification('Equipo actualizado con éxito', 'success');
+            } else {
+                await adminService.createTeam(newTeam);
+                showNotification('Equipo y administrador creados con éxito', 'success');
+            }
+            setNewTeam({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '' });
+            setEditingTeamId(null);
             loadData();
         } catch (err) {
-            showNotification(err.response?.data?.error || 'Error al crear equipo', 'error');
+            showNotification(err.response?.data?.error || 'Error al guardar equipo', 'error');
+        }
+    };
+
+    const handleEditTeam = (t) => {
+        setEditingTeamId(t.id);
+        setNewTeam({
+            name: t.name || '', slug: t.slug || '', admin_username: t.admin_username || '', admin_password: '',
+            delegate_document: t.delegate_document || '', delegate_name: t.delegate_name || '',
+            delegate_email: t.delegate_email || '', registration_pin: t.registration_pin || ''
+        });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const handleCancelEditTeam = () => {
+        setEditingTeamId(null);
+        setNewTeam({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '' });
+    };
+
+    const handleCreateTournament = async (e) => {
+        e.preventDefault();
+        try {
+            if (editingTournamentId) {
+                await tournamentService.update(editingTournamentId, newTournament);
+                showNotification('Torneo actualizado exitosamente', 'success');
+            } else {
+                await tournamentService.create(newTournament);
+                showNotification('Torneo creado exitosamente', 'success');
+            }
+            
+            setNewTournament({ 
+                name: '', city: '', description: '', 
+                image_url: '', rules_pdf_url: '',
+                admin_username: '', admin_password: '',
+                win_points: 3, draw_points: 1, loss_points: 0 
+            });
+            setEditingTournamentId(null);
+            loadData();
+        } catch (err) {
+            showNotification(editingTournamentId ? 'Error al actualizar torneo' : 'Error al crear torneo', 'error');
+        }
+    };
+
+    const handleEditTournament = (t) => {
+        setEditingTournamentId(t.id);
+        setNewTournament({
+            name: t.name || '', city: t.city || '', description: t.description || '',
+            image_url: t.image_url || '', rules_pdf_url: t.rules_pdf_url || '',
+            admin_username: t.admin_username || '', admin_password: '', // blank for security, update only if filled
+            win_points: t.win_points || 3, draw_points: t.draw_points || 1, loss_points: t.loss_points || 0
+        });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const handleCancelEditTournament = () => {
+        setEditingTournamentId(null);
+        setNewTournament({ 
+            name: '', city: '', description: '', 
+            image_url: '', rules_pdf_url: '',
+            admin_username: '', admin_password: '',
+            win_points: 3, draw_points: 1, loss_points: 0 
+        });
+    };
+
+    const handleTournamentAssetUpload = async (e, field) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setUploading(true);
+        try {
+            const res = await settingsService.uploadFile(file);
+            setNewTournament({ ...newTournament, [field]: res.data.url });
+            showNotification('Archivo cargado', 'success');
+        } catch (err) {
+            showNotification('Error al cargar archivo', 'error');
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const handleAssignTournament = async (teamId, tournamentId) => {
+        try {
+            await tournamentService.assignTeam(teamId, tournamentId);
+            showNotification('Equipo asignado correctamente', 'success');
+            loadData();
+        } catch (err) {
+            showNotification('Error al asignar equipo', 'error');
         }
     };
 
@@ -259,15 +365,22 @@ const AdminPanel = () => {
                 <>
                     {/* Tabs Navigation */}
                     <div className="tabs-container">
-                        {adminRole === 'superadmin' && (
-                            <button
-                                className={`btn ${activeTab === 'teams' ? 'btn-primary' : 'btn-secondary'}`}
-                                onClick={() => setActiveTab('teams')}
-                                style={{ whiteSpace: 'nowrap' }}
-                            >
-                                <Trophy size={18} /> Equipos
-                            </button>
-                        )}
+                            {adminRole === 'superadmin' && (
+                                <>
+                                    <button 
+                                        className={`tab ${activeTab === 'teams' ? 'active' : ''}`}
+                                        onClick={() => setActiveTab('teams')}
+                                    >
+                                        <Users size={18} /> Equipos
+                                    </button>
+                                    <button 
+                                        className={`tab ${activeTab === 'tournaments' ? 'active' : ''}`}
+                                        onClick={() => setActiveTab('tournaments')}
+                                    >
+                                        <Trophy size={18} /> Torneos
+                                    </button>
+                                </>
+                            )}
                         {localStorage.getItem('adminTeamId') && (
                             <>
                                 <button
@@ -299,7 +412,14 @@ const AdminPanel = () => {
                         <div className="animate-fade-in">
                             <div className="grid-form" style={{ gap: '2rem' }}>
                                 <div>
-                                    <h3 style={{ marginBottom: '1.5rem' }}>Crear Nuevo Equipo</h3>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                                        <h3>{editingTeamId ? '📝 Editar Equipo' : 'Crear Nuevo Equipo'}</h3>
+                                        {editingTeamId && (
+                                            <button type="button" className="btn btn-secondary" onClick={handleCancelEditTeam} style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
+                                                Cancelar
+                                            </button>
+                                        )}
+                                    </div>
                                     <form onSubmit={handleCreateTeam} className="glass" style={{ padding: '2rem' }}>
                                         <div className="form-group">
                                             <label className="label">Nombre del Equipo</label>
@@ -322,7 +442,7 @@ const AdminPanel = () => {
                                                 onChange={(e) => setNewTeam({ ...newTeam, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
                                                 required
                                             />
-                                            <small style={{ color: 'var(--text-muted)' }}>URL: localhost:3000/{newTeam.slug || '...'}</small>
+                                            <small style={{ color: 'var(--text-muted)' }}>Manda a los jugadores aquí: localhost:3000/{newTeam.slug || '...'}/registro</small>
                                         </div>
                                         <hr style={{ margin: '1.5rem 0', opacity: 0.1 }} />
                                         <div className="form-group">
@@ -344,11 +464,47 @@ const AdminPanel = () => {
                                                 placeholder="Password"
                                                 value={newTeam.admin_password}
                                                 onChange={(e) => setNewTeam({ ...newTeam, admin_password: e.target.value })}
-                                                required
+                                                required={!editingTeamId}
+                                            />
+                                        </div>
+                                        <hr style={{ margin: '1.5rem 0', opacity: 0.1 }} />
+                                        <h4 style={{ marginBottom: '1rem', color: 'var(--primary)' }}>Datos del Representante</h4>
+                                        <div className="form-group">
+                                            <label className="label">Documento Identidad</label>
+                                            <input
+                                                type="text" className="input" placeholder="Ej: 1100223344"
+                                                value={newTeam.delegate_document || ''}
+                                                onChange={(e) => setNewTeam({ ...newTeam, delegate_document: e.target.value })}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">Nombre del Representante</label>
+                                            <input
+                                                type="text" className="input" placeholder="Ej: Carlos Valderrama"
+                                                value={newTeam.delegate_name || ''}
+                                                onChange={(e) => setNewTeam({ ...newTeam, delegate_name: e.target.value })}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">Correo Válido (Email)</label>
+                                            <input
+                                                type="email" className="input" placeholder="Ej: admin@equipo.com"
+                                                value={newTeam.delegate_email || ''}
+                                                onChange={(e) => setNewTeam({ ...newTeam, delegate_email: e.target.value })}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                PIN de Registro Jugadores <span>(Opcional)</span>
+                                            </label>
+                                            <input 
+                                                type="text" className="input" placeholder="Ej: 1234" maxLength="4"
+                                                value={newTeam.registration_pin || ''}
+                                                onChange={(e) => setNewTeam({...newTeam, registration_pin: e.target.value.replace(/\D/g, '').slice(0, 4)})}
                                             />
                                         </div>
                                         <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>
-                                            <Plus size={18} /> Crear Equipo e Inicializar
+                                            {editingTeamId ? 'Guardar Cambios' : <><Plus size={18} /> Crear Equipo e Inicializar</>}
                                         </button>
                                     </form>
                                 </div>
@@ -358,20 +514,42 @@ const AdminPanel = () => {
                                         <table>
                                             <thead>
                                                 <tr>
-                                                    <th>ID</th>
                                                     <th>Nombre</th>
                                                     <th>Link de Registro</th>
+                                                    <th>Admin Usuario</th>
+                                                    <th>Torneo Asignado</th>
+                                                    <th>Acciones</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {teams.map(team => (
                                                     <tr key={team.id}>
-                                                        <td>{team.id}</td>
                                                         <td style={{ fontWeight: 600 }}>{team.name}</td>
-                                                        <td style={{ fontSize: '0.85rem' }}>
-                                                            <a href={`/${team.slug}`} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)' }}>
-                                                                /{team.slug}
-                                                            </a>
+                                                        <td><code>/{team.slug}</code></td>
+                                                        <td>{team.admin_username}</td>
+                                                        <td>
+                                                            <select 
+                                                                className="select"
+                                                                style={{ padding: '0.25rem', fontSize: '0.85rem' }}
+                                                                value={team.tournament_id || ''}
+                                                                onChange={(e) => handleAssignTournament(team.id, e.target.value)}
+                                                            >
+                                                                <option value="">Sin Torneo</option>
+                                                                {tournaments.map(t => (
+                                                                    <option key={t.id} value={t.id}>{t.name}</option>
+                                                                ))}
+                                                            </select>
+                                                        </td>
+                                                        <td style={{ display: 'flex', gap: '0.5rem' }}>
+                                                            <button className="btn btn-primary" style={{ padding: '0.4rem', fontSize: '0.8rem' }} onClick={() => handleEditTeam(team)}>
+                                                                Editar
+                                                            </button>
+                                                            <button className="btn btn-secondary" style={{ padding: '0.4rem', fontSize: '0.8rem' }} onClick={() => navigate(`/${team.slug}/registro`)}>
+                                                                Ver Link Registro
+                                                            </button>
+                                                            <button className="btn btn-secondary" style={{ padding: '0.4rem' }} onClick={() => handleDeleteTeam(team.id)}>
+                                                                <Trash2 size={14} color="var(--error)" />
+                                                            </button>
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -379,6 +557,150 @@ const AdminPanel = () => {
                                         </table>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'tournaments' && adminRole === 'superadmin' && (
+                        <div className="animate-fade-in">
+                            <h2 style={{ marginBottom: '1.5rem' }}>🏆 Gestión de Torneos</h2>
+                            <div className="glass" style={{ padding: '2rem', marginBottom: '2rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                                    <h3 style={{ margin: 0 }}>{editingTournamentId ? '📝 Editar Torneo' : 'Crear Nuevo Torneo Profesional'}</h3>
+                                    {editingTournamentId && (
+                                        <button type="button" className="btn btn-secondary" onClick={handleCancelEditTournament} style={{ padding: '0.5rem 1rem' }}>
+                                            Cancelar Edición
+                                        </button>
+                                    )}
+                                </div>
+                                <form onSubmit={handleCreateTournament}>
+                                    <div className="grid-form">
+                                        <div className="form-group">
+                                            <label className="label">Nombre del Torneo</label>
+                                            <input 
+                                                type="text" className="input" placeholder="Ej: Copa Master 2026" required
+                                                value={newTournament.name}
+                                                onChange={(e) => setNewTournament({...newTournament, name: e.target.value})}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">Ciudad</label>
+                                            <input 
+                                                type="text" className="input" placeholder="Ej: Santiago de Cali" required
+                                                value={newTournament.city}
+                                                onChange={(e) => setNewTournament({...newTournament, city: e.target.value})}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="label">Descripción / Información</label>
+                                        <textarea 
+                                            className="input" style={{ minHeight: '100px', padding: '1rem' }}
+                                            placeholder="Cuenta de qué trata este torneo..."
+                                            value={newTournament.description}
+                                            onChange={(e) => setNewTournament({...newTournament, description: e.target.value})}
+                                        ></textarea>
+                                    </div>
+
+                                    <div className="grid-form" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                                        <div className="form-group">
+                                            <label className="label">Cargar Imagen (Hero/Logo)</label>
+                                            <input type="file" className="input" accept="image/*" onChange={(e) => handleTournamentAssetUpload(e, 'image_url')} />
+                                            {newTournament.image_url && <p style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '0.5rem' }}>✓ Imagen lista</p>}
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">Cargar Reglamento (PDF)</label>
+                                            <input type="file" className="input" accept=".pdf" onChange={(e) => handleTournamentAssetUpload(e, 'rules_pdf_url')} />
+                                            {newTournament.rules_pdf_url && <p style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '0.5rem' }}>✓ PDF listo</p>}
+                                        </div>
+                                    </div>
+
+                                    <div className="glass" style={{ padding: '1.5rem', marginBottom: '1.5rem', background: 'rgba(255,255,255,0.03)' }}>
+                                        <h4 style={{ marginBottom: '1rem' }}>Administrador del Torneo</h4>
+                                        <div className="grid-form" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                                            <div className="form-group">
+                                                <label className="label">Usuario Admin</label>
+                                                <input 
+                                                    type="text" className="input" placeholder="admin.copa2026" required
+                                                    value={newTournament.admin_username}
+                                                    onChange={(e) => setNewTournament({...newTournament, admin_username: e.target.value})}
+                                                />
+                                            </div>
+                                            <div className="form-group">
+                                                <label className="label">Contraseña Admin</label>
+                                                <input 
+                                                    type="password" className="input" required
+                                                    value={newTournament.admin_password}
+                                                    onChange={(e) => setNewTournament({...newTournament, admin_password: e.target.value})}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid-form" style={{ gridTemplateColumns: '1fr 1fr 1fr auto' }}>
+                                        <div className="form-group">
+                                            <label className="label">Pts Victoria</label>
+                                            <input 
+                                                type="number" className="input" required
+                                                value={newTournament.win_points}
+                                                onChange={(e) => setNewTournament({...newTournament, win_points: parseInt(e.target.value)})}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">Pts Empate</label>
+                                            <input 
+                                                type="number" className="input" required
+                                                value={newTournament.draw_points}
+                                                onChange={(e) => setNewTournament({...newTournament, draw_points: parseInt(e.target.value)})}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">Pts Derrota</label>
+                                            <input 
+                                                type="number" className="input" required
+                                                value={newTournament.loss_points}
+                                                onChange={(e) => setNewTournament({...newTournament, loss_points: parseInt(e.target.value)})}
+                                            />
+                                        </div>
+                                        <div style={{ alignSelf: 'flex-end', marginBottom: '1.5rem' }}>
+                                            <button type="submit" className="btn btn-primary" disabled={uploading}>
+                                                {editingTournamentId ? 'Guardar Cambios' : (uploading ? 'Cargando...' : 'Crear Torneo')}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+
+                            <div className="glass table-container">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Nombre</th>
+                                            <th>Slug (URL)</th>
+                                            <th>Puntos (V/E/D)</th>
+                                            <th>Fecha Creación</th>
+                                            <th>Acciones</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {tournaments.length === 0 ? (
+                                            <tr><td colSpan="5" style={{ textAlign: 'center', padding: '2rem' }}>No hay torneos creados.</td></tr>
+                                        ) : tournaments.map(t => (
+                                            <tr key={t.id}>
+                                                <td style={{ fontWeight: 600 }}>{t.name}</td>
+                                                <td><code>/{t.slug}</code></td>
+                                                <td>{t.win_points}/{t.draw_points}/{t.loss_points}</td>
+                                                <td style={{ fontSize: '0.85rem' }}>{new Date(t.created_at).toLocaleDateString()}</td>
+                                                <td>
+                                                    <button className="btn btn-primary" style={{ padding: '0.4rem', fontSize: '0.8rem' }} onClick={() => handleEditTournament(t)}>
+                                                        Editar
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     )}
@@ -543,15 +865,33 @@ const AdminPanel = () => {
                             <form onSubmit={handleUpdateSettings}>
                                 <div className="grid-form" style={{ gap: '2rem' }}>
                                     <div>
-                                        <h3 style={{ marginBottom: '1.5rem' }}>Identidad del Equipo</h3>
+                                        <h3 style={{ marginBottom: '0.5rem' }}>Identidad del Equipo</h3>
+                                        <div style={{ padding: '1rem', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '8px', borderLeft: '4px solid var(--primary)', marginBottom: '1.5rem' }}>
+                                            <strong style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--primary)' }}>🔗 Link de Inscripción de Jugadores:</strong>
+                                            <code style={{ fontSize: '1rem' }}>
+                                                http://localhost:3000/{localStorage.getItem('adminTeamSlug') || '...'}/registro
+                                            </code>
+                                        </div>
                                         <div className="form-group">
                                             <label className="label">Nombre del Equipo</label>
                                             <input
                                                 type="text"
                                                 className="input"
-                                                value={settings.team_name}
+                                                value={settings.team_name || ''}
                                                 onChange={(e) => setSettings({ ...settings, team_name: e.target.value })}
                                             />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">PIN de Registro de Jugadores</label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                placeholder="Ej: 1234"
+                                                maxLength="4"
+                                                value={settings.registration_pin || ''}
+                                                onChange={(e) => setSettings({ ...settings, registration_pin: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+                                            />
+                                            <small style={{ color: 'var(--text-muted)' }}>Déjalo vacío si no quieres exigir PIN para la inscripción.</small>
                                         </div>
                                         <div className="form-group">
                                             <label className="label">Logo del Equipo</label>

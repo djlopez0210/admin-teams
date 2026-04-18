@@ -19,14 +19,25 @@ const Login = () => {
 
         try {
             const res = await adminService.login(credentials);
-            if (res.data.authenticated) {
+            if (res.data.role) {
                 localStorage.setItem('adminAuthenticated', 'true');
                 localStorage.setItem('adminTeamId', res.data.team_id || '');
                 localStorage.setItem('adminTeamSlug', res.data.team_slug || '');
+                localStorage.setItem('adminTournamentId', res.data.tournament_id || '');
+                localStorage.setItem('adminTournamentSlug', res.data.tournament_slug || '');
                 localStorage.setItem('adminRole', res.data.role);
                 localStorage.setItem('adminUsername', credentials.username);
-                showNotification('Bienvenido de nuevo, ' + credentials.username, 'success');
-                navigate('/admin');
+                
+                showNotification('Bienvenido, ' + credentials.username, 'success');
+                
+                // Redirect based on role
+                if (res.data.role === 'superadmin') {
+                    navigate('/admin');
+                } else if (res.data.role === 'tournament_admin') {
+                    navigate('/tournament-admin');
+                } else {
+                    navigate('/players'); // Default for team admins
+                }
             }
         } catch (err) {
             setError('Credenciales incorrectas. Por favor, intente de nuevo.');

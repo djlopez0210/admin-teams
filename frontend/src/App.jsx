@@ -7,7 +7,8 @@ import PlayersList from './pages/PlayersList'
 import AdminPanel from './pages/AdminPanel'
 import Login from './pages/Login'
 import LandingPage from './pages/LandingPage'
-import TournamentPanel from './pages/TournamentPanel'
+import TournamentLanding from './pages/TournamentLanding'
+import TournamentAdminPanel from './pages/TournamentAdminPanel'
 import ProtectedRoute from './components/ProtectedRoute'
 import { settingsService } from './services/api'
 import { useParams, useLocation } from 'react-router-dom'
@@ -43,6 +44,15 @@ function TeamLayout({ children, isPublic = true }) {
       applySettings({
         team_name: 'Gestión Global',
         team_logo_url: '/logo-placeholder.png', // Or just empty
+        favicon_url: ''
+      });
+      return;
+    }
+    
+    if (role === 'tournament_admin') {
+      applySettings({
+        team_name: 'Panel de Torneo',
+        team_logo_url: '',
         favicon_url: ''
       });
       return;
@@ -140,10 +150,23 @@ function App() {
               </ProtectedRoute>
             } 
           />
+          <Route 
+            path="/tournament-admin" 
+            element={
+              <ProtectedRoute>
+                <TeamLayout isPublic={false}><TournamentAdminPanel /></TeamLayout>
+              </ProtectedRoute>
+            } 
+          />
 
-          {/* Public Registration routes (Greedy param at bottom) */}
-          <Route path="/:teamSlug" element={<TeamLayout isPublic={true}><RegisterPlayer /></TeamLayout>} />
-          <Route path="/:teamSlug/stats" element={<TeamLayout isPublic={true}><TournamentPanel /></TeamLayout>} />
+          {/* Public Tournament routes */}
+          <Route path="/:tournamentSlug">
+            <Route index element={<TournamentLanding />} />
+            <Route path="stats" element={<TournamentLanding />} />
+          </Route>
+
+          {/* Direct Team Registration Route */}
+          <Route path="/:teamSlug/registro" element={<TeamLayout isPublic={true}><RegisterPlayer /></TeamLayout>} />
 
           {/* Landing Page (Root) */}
           <Route path="/" element={<LandingPage />} />

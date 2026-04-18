@@ -1,0 +1,4 @@
+ALTER TABLE teams ADD COLUMN registration_pin VARCHAR(4) DEFAULT NULL;
+ALTER TABLE teams ADD COLUMN delegate_document VARCHAR(50);
+ALTER TABLE teams ADD COLUMN delegate_name VARCHAR(100);
+ALTER TABLE teams ADD COLUMN delegate_email VARCHAR(100);
