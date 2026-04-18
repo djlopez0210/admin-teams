@@ -35,11 +35,11 @@ services:
     build: 
       context: ./frontend
       args:
-        - VITE_API_URL=http://147.93.187.188:5001/api
+        - VITE_API_URL=/api
     container_name: football-frontend-prod
     restart: always
     ports:
-      - "80:80"
+      - "5173:80"
     depends_on:
       - backend
 

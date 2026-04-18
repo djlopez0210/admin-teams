@@ -1,0 +1,23 @@
+# Entornos
+.env
+.env.local
+.env.production
+.env.development
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Node/React
+node_modules/
+dist/
+build/
+.DS_Store
+
+# Docker
+.docker_data/
