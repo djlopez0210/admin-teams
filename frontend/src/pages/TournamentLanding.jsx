@@ -37,6 +37,26 @@ const TournamentLanding = () => {
             setFixtures(fRes.data);
             setScorers(scRes.data);
             setTeams(tmRes.data);
+
+            // Apply dynamic branding
+            if (tRes.data.primary_color || tRes.data.secondary_color) {
+                const styleId = 'dynamic-tournament-theme';
+                let styleElement = document.getElementById(styleId);
+                if (!styleElement) {
+                    styleElement = document.createElement('style');
+                    styleElement.id = styleId;
+                    document.head.appendChild(styleElement);
+                }
+                styleElement.innerHTML = `
+                    :root {
+                        ${tRes.data.primary_color ? `--primary: ${tRes.data.primary_color} !important;` : ''}
+                        ${tRes.data.secondary_color ? `--secondary: ${tRes.data.secondary_color} !important;` : ''}
+                    }
+                    .btn-primary { background-color: var(--primary) !important; color: #000 !important; }
+                    .tab.active { border-bottom-color: var(--primary) !important; color: var(--primary) !important; }
+                    .badge { background-color: var(--primary) !important; color: #000 !important; }
+                `;
+            }
         } catch (err) {
             console.error('Error loading tournament data', err);
             showNotification('Error al cargar datos del torneo.', 'error');

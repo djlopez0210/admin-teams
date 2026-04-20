@@ -26,6 +26,7 @@ const Login = () => {
                 localStorage.setItem('adminTournamentId', res.data.tournament_id || '');
                 localStorage.setItem('adminTournamentSlug', res.data.tournament_slug || '');
                 localStorage.setItem('adminRole', res.data.role);
+                localStorage.setItem('adminUserId', res.data.user_id || '');
                 localStorage.setItem('adminUsername', credentials.username);
                 
                 showNotification('Bienvenido, ' + credentials.username, 'success');
@@ -35,6 +36,8 @@ const Login = () => {
                     navigate('/admin');
                 } else if (res.data.role === 'tournament_admin') {
                     navigate('/tournament-admin');
+                } else if (res.data.role === 'veedor') {
+                    navigate('/veedor');
                 } else {
                     navigate('/players'); // Default for team admins
                 }

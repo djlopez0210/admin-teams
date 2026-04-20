@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
-const api = axios.create({
+export const api = axios.create({
     baseURL: API_URL
 });
 
@@ -10,8 +10,10 @@ const api = axios.create({
 api.interceptors.request.use(config => {
     const teamId = localStorage.getItem('adminTeamId');
     const tournamentId = localStorage.getItem('adminTournamentId');
+    const userId = localStorage.getItem('adminUserId');
     if (teamId) config.headers['X-Team-ID'] = teamId;
     if (tournamentId) config.headers['X-Tournament-ID'] = tournamentId;
+    if (userId) config.headers['X-User-ID'] = userId;
     return config;
 });
 
@@ -47,8 +49,19 @@ export const tournamentService = {
     getStandings: (slug) => api.get(`/tournaments/${slug}/standings`),
     getFixtures: (slug) => api.get(`/tournaments/${slug}/fixtures`),
     getScorers: (slug) => api.get(`/tournaments/${slug}/scorers`),
+    getStats: (slug) => api.get(`/tournaments/${slug}/stats`),
     getTeams: (slug) => api.get(`/tournaments/${slug}/teams`),
+    getTeamPlayers: (teamId) => api.get(`/teams/${teamId}/players`),
     assignTeam: (teamId, tournamentId) => api.put(`/teams/${teamId}/tournament`, { tournament_id: tournamentId }),
+    getVeedores: (tournamentId) => api.get(`/tournaments/${tournamentId}/veedores`),
+    createVeedor: (tournamentId, data) => api.post(`/tournaments/${tournamentId}/veedores`, data),
+    deleteUser: (userId) => api.delete(`/users/${userId}`),
+    startMatch: (matchId) => api.post(`/matches/${matchId}/start`),
+    getMatchLineup: (matchId) => api.get(`/matches/${matchId}/lineup`),
+    getMatchEvents: (matchId) => api.get(`/matches/${matchId}/events`),
+    addMatchEvent: (matchId, data) => api.post(`/matches/${matchId}/events`, data),
+    assignVeedor: (matchId, veedorId) => api.post(`/matches/${matchId}/assign-veedor`, { veedor_id: veedorId }),
+    lookup: (identification) => api.get(`/tournaments/lookup/${identification}`),
 };
 
 export const refereeService = {
@@ -64,6 +77,7 @@ export const adminService = {
     getTeams: () => api.get('/teams'),
     createTeam: (data) => api.post('/teams', data),
     updateTeam: (id, data) => api.put(`/teams/${id}`, data),
+    deleteTeam: (id) => api.delete(`/teams/${id}`),
 };
 
 export const settingsService = {

@@ -20,6 +20,9 @@ const AdminPanel = () => {
     const [teams, setTeams] = useState([]);
     const [newTeam, setNewTeam] = useState({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '' });
     const [editingTeamId, setEditingTeamId] = useState(null);
+    const [selectedTeamPlayers, setSelectedTeamPlayers] = useState([]);
+    const [showPlayersModal, setShowPlayersModal] = useState(false);
+    const [viewingTeamName, setViewingTeamName] = useState('');
     const [settings, setSettings] = useState({
         team_name: '',
         team_logo_url: '',
@@ -33,11 +36,22 @@ const AdminPanel = () => {
     const [editingCostAmount, setEditingCostAmount] = useState('');
     const [tournaments, setTournaments] = useState([]);
     const [newTournament, setNewTournament] = useState({ 
-        name: '', city: '', description: '', 
-        image_url: '', rules_pdf_url: '',
-        admin_username: '', admin_password: '',
-        win_points: 3, draw_points: 1, loss_points: 0 
+        name: '', 
+        identification: '',
+        representative_name: '',
+        representative_phone: '',
+        representative_address: '',
+        city: '', 
+        description: '', 
+        image_url: '', 
+        rules_pdf_url: '',
+        admin_username: '', 
+        admin_password: '',
+        win_points: 3, draw_points: 1, loss_points: 0,
+        start_date: '',
+        end_date: ''
     });
+    const [lookupLoading, setLookupLoading] = useState(false);
     const [editingTournamentId, setEditingTournamentId] = useState(null);
 
     const loadData = async () => {
@@ -117,7 +131,12 @@ const AdminPanel = () => {
     };
 
     const handleDeletePosition = async (id) => {
-        if (window.confirm('¿Eliminar esta posición? Solo funcionará si no hay jugadores asignados.')) {
+        const confirmed = await showConfirm({
+            title: 'Eliminar Posición',
+            message: '¿Estás seguro de eliminar esta posición? Solo funcionará si no hay jugadores asignados.',
+            type: 'warning'
+        });
+        if (confirmed) {
             try {
                 await positionService.delete(id);
                 showNotification('Posición eliminada', 'success');
@@ -183,6 +202,29 @@ const AdminPanel = () => {
         setNewTeam({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '' });
     };
 
+    const handleLookupIdentification = async () => {
+        if (!newTournament.identification) return;
+        setLookupLoading(true);
+        try {
+            const res = await tournamentService.lookup(newTournament.identification);
+            if (res.data) {
+                setNewTournament(prev => ({
+                    ...prev,
+                    representative_name: res.data.representative_name || prev.representative_name,
+                    representative_phone: res.data.representative_phone || prev.representative_phone,
+                    representative_address: res.data.representative_address || prev.representative_address,
+                    city: res.data.city || prev.city
+                }));
+                showNotification('Datos de representante precargados', 'success');
+            }
+        } catch (err) {
+            // Silently fail if not found, it's expected for new IDs
+            console.log("No previous data found for this ID");
+        } finally {
+            setLookupLoading(false);
+        }
+    };
+
     const handleCreateTournament = async (e) => {
         e.preventDefault();
         try {
@@ -195,10 +237,22 @@ const AdminPanel = () => {
             }
             
             setNewTournament({ 
-                name: '', city: '', description: '', 
-                image_url: '', rules_pdf_url: '',
-                admin_username: '', admin_password: '',
-                win_points: 3, draw_points: 1, loss_points: 0 
+                name: '', 
+                identification: '',
+                representative_name: '',
+                representative_phone: '',
+                representative_address: '',
+                city: '', 
+                description: '', 
+                image_url: '', 
+                rules_pdf_url: '',
+                admin_username: '', 
+                admin_password: '',
+                win_points: 3, 
+                draw_points: 1, 
+                loss_points: 0,
+                start_date: '',
+                end_date: ''
             });
             setEditingTournamentId(null);
             loadData();
@@ -221,10 +275,22 @@ const AdminPanel = () => {
     const handleCancelEditTournament = () => {
         setEditingTournamentId(null);
         setNewTournament({ 
-            name: '', city: '', description: '', 
-            image_url: '', rules_pdf_url: '',
-            admin_username: '', admin_password: '',
-            win_points: 3, draw_points: 1, loss_points: 0 
+            name: '', 
+            identification: '',
+            representative_name: '',
+            representative_phone: '',
+            representative_address: '',
+            city: '', 
+            description: '', 
+            image_url: '', 
+            rules_pdf_url: '',
+            admin_username: '', 
+            admin_password: '',
+            win_points: 3, 
+            draw_points: 1, 
+            loss_points: 0,
+            start_date: '',
+            end_date: ''
         });
     };
 
@@ -250,6 +316,34 @@ const AdminPanel = () => {
             loadData();
         } catch (err) {
             showNotification('Error al asignar equipo', 'error');
+        }
+    };
+
+    const handleViewPlayers = async (team) => {
+        try {
+            setViewingTeamName(team.name);
+            const res = await tournamentService.getTeamPlayers(team.id);
+            setSelectedTeamPlayers(res.data);
+            setShowPlayersModal(true);
+            localStorage.setItem('viewingTeamId', team.id); // Guardamos para refrescar
+        } catch (err) {
+            showNotification('Error al cargar jugadores', 'error');
+        }
+    };
+
+    const handleDeletePlayer = async (id) => {
+        if (!window.confirm('¿Estás seguro de eliminar a este jugador?')) return;
+        try {
+            await playerService.delete(id);
+            showNotification('Jugador eliminado', 'success');
+            // Refrescar lista
+            const teamId = localStorage.getItem('viewingTeamId');
+            if (teamId) {
+                const res = await tournamentService.getTeamPlayers(teamId);
+                setSelectedTeamPlayers(res.data);
+            }
+        } catch (err) {
+            showNotification('Error al eliminar jugador', 'error');
         }
     };
 
@@ -299,8 +393,31 @@ const AdminPanel = () => {
         }
     };
 
+    const handleDeleteTournament = async (id) => {
+        const confirmed = await showConfirm({
+            title: 'Eliminar Torneo',
+            message: '¿ESTÁS SEGURO? Se eliminarán todos los datos asociados.',
+            type: 'error',
+            confirmButtonText: 'Eliminar Permanente'
+        });
+        if (!confirmed) return;
+        try {
+            await tournamentService.delete(id);
+            showNotification('Torneo eliminado', 'success');
+            loadData();
+        } catch (err) {
+            showNotification('Error al eliminar torneo', 'error');
+        }
+    };
+
     const handleDeleteCost = async (id) => {
-        if (!window.confirm('¿Eliminar este costo?')) return;
+        const confirmed = await showConfirm({
+            title: 'Eliminar Costo',
+            message: '¿Eliminar este costo?',
+            type: 'error',
+            confirmButtonText: 'Eliminar'
+        });
+        if (!confirmed) return;
         try {
             await costService.delete(id);
             setCosts(costs.filter(c => c.id !== id));
@@ -524,7 +641,13 @@ const AdminPanel = () => {
                                             <tbody>
                                                 {teams.map(team => (
                                                     <tr key={team.id}>
-                                                        <td style={{ fontWeight: 600 }}>{team.name}</td>
+                                                        <td 
+                                                            onClick={() => handleViewPlayers(team)}
+                                                            style={{ fontWeight: 600, cursor: 'pointer', color: 'var(--primary)' }}
+                                                            title="Ver jugadores"
+                                                        >
+                                                            {team.name}
+                                                        </td>
                                                         <td><code>/{team.slug}</code></td>
                                                         <td>{team.admin_username}</td>
                                                         <td>
@@ -574,7 +697,57 @@ const AdminPanel = () => {
                                     )}
                                 </div>
                                 <form onSubmit={handleCreateTournament}>
-                                    <div className="grid-form">
+                                    {/* Sección Identidad del Cliente */}
+                                    <h4 style={{ marginBottom: '1.5rem', color: 'var(--primary)', opacity: 0.8, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <Users size={18} /> Datos de la Entidad / Organizador
+                                    </h4>
+                                    <div className="grid-form" style={{ gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
+                                        <div className="form-group" style={{ position: 'relative' }}>
+                                            <label className="label">Identificación (ID / NIT)</label>
+                                            <input 
+                                                type="text" className="input" placeholder="Ingresa ID para autocompletar..." required
+                                                value={newTournament.identification}
+                                                onChange={(e) => setNewTournament({...newTournament, identification: e.target.value})}
+                                                onBlur={handleLookupIdentification}
+                                                disabled={lookupLoading}
+                                            />
+                                            {lookupLoading && (
+                                                <div style={{ position: 'absolute', right: '10px', top: '38px' }}>
+                                                    <RefreshCcw size={18} color="var(--primary)" className="animate-spin" />
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">Nombre del Representante</label>
+                                            <input 
+                                                type="text" className="input" placeholder="Representante Legal" required
+                                                value={newTournament.representative_name}
+                                                onChange={(e) => setNewTournament({...newTournament, representative_name: e.target.value})}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">Teléfono de Contacto</label>
+                                            <input 
+                                                type="text" className="input" placeholder="+57 3..." required
+                                                value={newTournament.representative_phone}
+                                                onChange={(e) => setNewTournament({...newTournament, representative_phone: e.target.value})}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">Dirección / Sede principal</label>
+                                            <input 
+                                                type="text" className="input" placeholder="Av. Principal #123" required
+                                                value={newTournament.representative_address}
+                                                onChange={(e) => setNewTournament({...newTournament, representative_address: e.target.value})}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Sección Datos del Torneo */}
+                                    <h4 style={{ marginBottom: '1.5rem', color: 'var(--primary)', opacity: 0.8, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <Trophy size={18} /> Especificaciones del Torneo 
+                                    </h4>
+                                    <div className="grid-form" style={{ gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
                                         <div className="form-group">
                                             <label className="label">Nombre del Torneo</label>
                                             <input 
@@ -584,90 +757,59 @@ const AdminPanel = () => {
                                             />
                                         </div>
                                         <div className="form-group">
-                                            <label className="label">Ciudad</label>
+                                            <label className="label">Ciudad de ejecución</label>
                                             <input 
                                                 type="text" className="input" placeholder="Ej: Santiago de Cali" required
                                                 value={newTournament.city}
                                                 onChange={(e) => setNewTournament({...newTournament, city: e.target.value})}
                                             />
                                         </div>
-                                    </div>
-
-                                    <div className="form-group">
-                                        <label className="label">Descripción / Información</label>
-                                        <textarea 
-                                            className="input" style={{ minHeight: '100px', padding: '1rem' }}
-                                            placeholder="Cuenta de qué trata este torneo..."
-                                            value={newTournament.description}
-                                            onChange={(e) => setNewTournament({...newTournament, description: e.target.value})}
-                                        ></textarea>
-                                    </div>
-
-                                    <div className="grid-form" style={{ gridTemplateColumns: '1fr 1fr' }}>
                                         <div className="form-group">
-                                            <label className="label">Cargar Imagen (Hero/Logo)</label>
-                                            <input type="file" className="input" accept="image/*" onChange={(e) => handleTournamentAssetUpload(e, 'image_url')} />
-                                            {newTournament.image_url && <p style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '0.5rem' }}>✓ Imagen lista</p>}
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="label">Cargar Reglamento (PDF)</label>
-                                            <input type="file" className="input" accept=".pdf" onChange={(e) => handleTournamentAssetUpload(e, 'rules_pdf_url')} />
-                                            {newTournament.rules_pdf_url && <p style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '0.5rem' }}>✓ PDF listo</p>}
-                                        </div>
-                                    </div>
-
-                                    <div className="glass" style={{ padding: '1.5rem', marginBottom: '1.5rem', background: 'rgba(255,255,255,0.03)' }}>
-                                        <h4 style={{ marginBottom: '1rem' }}>Administrador del Torneo</h4>
-                                        <div className="grid-form" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                                            <div className="form-group">
-                                                <label className="label">Usuario Admin</label>
-                                                <input 
-                                                    type="text" className="input" placeholder="admin.copa2026" required
-                                                    value={newTournament.admin_username}
-                                                    onChange={(e) => setNewTournament({...newTournament, admin_username: e.target.value})}
-                                                />
-                                            </div>
-                                            <div className="form-group">
-                                                <label className="label">Contraseña Admin</label>
-                                                <input 
-                                                    type="password" className="input" required
-                                                    value={newTournament.admin_password}
-                                                    onChange={(e) => setNewTournament({...newTournament, admin_password: e.target.value})}
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="grid-form" style={{ gridTemplateColumns: '1fr 1fr 1fr auto' }}>
-                                        <div className="form-group">
-                                            <label className="label">Pts Victoria</label>
+                                            <label className="label">Fecha Inicio</label>
                                             <input 
-                                                type="number" className="input" required
-                                                value={newTournament.win_points}
-                                                onChange={(e) => setNewTournament({...newTournament, win_points: parseInt(e.target.value)})}
+                                                type="date" className="input" required
+                                                value={newTournament.start_date}
+                                                onChange={(e) => setNewTournament({...newTournament, start_date: e.target.value})}
                                             />
                                         </div>
                                         <div className="form-group">
-                                            <label className="label">Pts Empate</label>
+                                            <label className="label">Fecha Finalización</label>
                                             <input 
-                                                type="number" className="input" required
-                                                value={newTournament.draw_points}
-                                                onChange={(e) => setNewTournament({...newTournament, draw_points: parseInt(e.target.value)})}
+                                                type="date" className="input" required
+                                                value={newTournament.end_date}
+                                                onChange={(e) => setNewTournament({...newTournament, end_date: e.target.value})}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Acceso Administrativo */}
+                                    <h4 style={{ marginBottom: '1.5rem', color: 'var(--primary)', opacity: 0.8, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <Settings size={18} /> Acceso del Administrador
+                                    </h4>
+                                    <div className="grid-form" style={{ gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
+                                        <div className="form-group">
+                                            <label className="label">Usuario Administrador</label>
+                                            <input 
+                                                type="text" className="input" placeholder="admin.copa2026" required
+                                                value={newTournament.admin_username}
+                                                onChange={(e) => setNewTournament({...newTournament, admin_username: e.target.value})}
                                             />
                                         </div>
                                         <div className="form-group">
-                                            <label className="label">Pts Derrota</label>
+                                            <label className="label">Contraseña inicial</label>
                                             <input 
-                                                type="number" className="input" required
-                                                value={newTournament.loss_points}
-                                                onChange={(e) => setNewTournament({...newTournament, loss_points: parseInt(e.target.value)})}
+                                                type="password" className="input" required={!editingTournamentId}
+                                                placeholder={editingTournamentId ? "En blanco para mantener" : "Mínimo 6 caracteres"}
+                                                value={newTournament.admin_password}
+                                                onChange={(e) => setNewTournament({...newTournament, admin_password: e.target.value})}
                                             />
                                         </div>
-                                        <div style={{ alignSelf: 'flex-end', marginBottom: '1.5rem' }}>
-                                            <button type="submit" className="btn btn-primary" disabled={uploading}>
-                                                {editingTournamentId ? 'Guardar Cambios' : (uploading ? 'Cargando...' : 'Crear Torneo')}
-                                            </button>
-                                        </div>
+                                    </div>
+
+                                    <div style={{ textAlign: 'right' }}>
+                                        <button type="submit" className="btn btn-primary" style={{ padding: '1rem 3rem' }} disabled={uploading}>
+                                            <Plus size={20} /> {editingTournamentId ? 'Actualizar Torneo' : 'Crear Torneo Profesional'}
+                                        </button>
                                     </div>
                                 </form>
                             </div>
@@ -677,6 +819,7 @@ const AdminPanel = () => {
                                     <thead>
                                         <tr>
                                             <th>Nombre</th>
+                                            <th>Admin</th>
                                             <th>Slug (URL)</th>
                                             <th>Puntos (V/E/D)</th>
                                             <th>Fecha Creación</th>
@@ -685,10 +828,11 @@ const AdminPanel = () => {
                                     </thead>
                                     <tbody>
                                         {tournaments.length === 0 ? (
-                                            <tr><td colSpan="5" style={{ textAlign: 'center', padding: '2rem' }}>No hay torneos creados.</td></tr>
+                                            <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }}>No hay torneos creados.</td></tr>
                                         ) : tournaments.map(t => (
                                             <tr key={t.id}>
                                                 <td style={{ fontWeight: 600 }}>{t.name}</td>
+                                                <td style={{ fontSize: '0.85rem', color: 'var(--primary)' }}>{t.admin_username || '---'}</td>
                                                 <td><code>/{t.slug}</code></td>
                                                 <td>{t.win_points}/{t.draw_points}/{t.loss_points}</td>
                                                 <td style={{ fontSize: '0.85rem' }}>{new Date(t.created_at).toLocaleDateString()}</td>
@@ -1038,6 +1182,58 @@ const AdminPanel = () => {
                         </div>
                     )}
                 </>
+            )}
+
+            {/* Modal de Jugadores */}
+            {showPlayersModal && (
+                <div className="modal-overlay" onClick={() => setShowPlayersModal(false)}>
+                    <div className="glass modal-content animate-scale-up" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px', width: '90%' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                            <h3>Jugadores de {viewingTeamName}</h3>
+                            <button className="btn-icon" onClick={() => setShowPlayersModal(false)}>✕</button>
+                        </div>
+                        <div className="players-list-scroll" style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                            {selectedTeamPlayers.length > 0 ? (
+                                <table className="admin-table">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Nombre</th>
+                                            <th>Posición</th>
+                                            <th style={{ textAlign: 'right' }}>Acciones</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {selectedTeamPlayers.map(p => (
+                                            <tr key={p.id}>
+                                                <td><span className="badge-id">{p.uniform_number}</span></td>
+                                                <td>{p.full_name}</td>
+                                                <td>{p.position}</td>
+                                                <td style={{ textAlign: 'right' }}>
+                                                    <button 
+                                                        className="btn-icon" 
+                                                        style={{ color: 'var(--error)' }} 
+                                                        onClick={() => handleDeletePlayer(p.id)}
+                                                        title="Eliminar Jugador"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6 }}>
+                                    Este equipo no tiene jugadores aún.
+                                </div>
+                            )}
+                        </div>
+                        <div style={{ marginTop: '1.5rem', textAlign: 'right' }}>
+                            <button className="btn btn-secondary" onClick={() => setShowPlayersModal(false)}>Cerrar</button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

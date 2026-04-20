@@ -1,157 +1,70 @@
 CREATE DATABASE IF NOT EXISTS football_team;
 USE football_team;
 
--- 1. Teams table
+-- 1. Tournaments
+CREATE TABLE IF NOT EXISTS tournaments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100),
+    slug VARCHAR(100) UNIQUE,
+    city VARCHAR(100),
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Teams
 CREATE TABLE IF NOT EXISTS teams (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     slug VARCHAR(100) NOT NULL UNIQUE,
+    tournament_id INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. Users table (Admin accounts)
+-- 3. Users
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    team_id INT NULL,  -- NULL means SuperAdmin or global access
-    username VARCHAR(50) NOT NULL UNIQUE,
+    username VARCHAR(100) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(20) DEFAULT 'admin', -- 'admin', 'superadmin'
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
+    role VARCHAR(20) DEFAULT 'admin',
+    team_id INT NULL,
+    tournament_id INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. Positions table (per team)
-CREATE TABLE IF NOT EXISTS positions (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    team_id INT NOT NULL,
-    name VARCHAR(50) NOT NULL,
-    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
-    UNIQUE KEY (team_id, name)
-);
-
--- 4. Uniform numbers table (per team)
-CREATE TABLE IF NOT EXISTS uniform_numbers (
-    team_id INT NOT NULL,
-    number INT NOT NULL,
-    is_available BOOLEAN DEFAULT TRUE,
-    PRIMARY KEY (team_id, number),
-    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
-);
-
--- 5. Players table (per team)
+-- 4. Players
 CREATE TABLE IF NOT EXISTS players (
     id INT AUTO_INCREMENT PRIMARY KEY,
     team_id INT NOT NULL,
-    document_type VARCHAR(50) NOT NULL,
-    document_number VARCHAR(50) NOT NULL,
     full_name VARCHAR(100) NOT NULL,
-    address VARCHAR(255),
-    neighborhood VARCHAR(100),
-    phone VARCHAR(20) NOT NULL,
-    eps VARCHAR(100),
-    uniform_size VARCHAR(10) NOT NULL,
+    document_number VARCHAR(50) NOT NULL,
     uniform_number INT NOT NULL,
-    primary_position_id INT NOT NULL,
-    secondary_position_id INT,
-    payment_status VARCHAR(20) DEFAULT 'Pendiente',
-    payment_amount DECIMAL(10, 2) DEFAULT 0.00,
-    last_registration_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    position VARCHAR(50),
+    payment_status ENUM('PENDING', 'PAID') DEFAULT 'PENDING',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
-    FOREIGN KEY (team_id, uniform_number) REFERENCES uniform_numbers(team_id, number),
-    FOREIGN KEY (primary_position_id) REFERENCES positions(id),
-    FOREIGN KEY (secondary_position_id) REFERENCES positions(id),
     UNIQUE KEY (team_id, document_number)
 );
 
--- 6. Player history table (per team)
-CREATE TABLE IF NOT EXISTS player_history (
+-- 5. Matches
+CREATE TABLE IF NOT EXISTS matches (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    team_id INT NOT NULL,
-    player_id INT NOT NULL,
-    document_number VARCHAR(50) NOT NULL,
-    full_name VARCHAR(100) NOT NULL,
-    uniform_number INT NOT NULL,
-    primary_position_id INT NOT NULL,
-    secondary_position_id INT,
-    payment_status VARCHAR(20),
-    payment_amount DECIMAL(10, 2),
-    registered_date DATETIME NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
-);
-
--- 7. Activity logs table (per team)
-CREATE TABLE IF NOT EXISTS activity_logs (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    team_id INT NOT NULL,
-    action VARCHAR(255) NOT NULL,
-    details TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
-);
-
--- 8. Settings table (per team)
-CREATE TABLE IF NOT EXISTS settings (
-    team_id INT PRIMARY KEY,
-    team_name VARCHAR(100) DEFAULT 'TeamManager',
-    team_logo_url TEXT,
-    favicon_url TEXT,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
-);
-
--- 9. Costs table (per team)
-CREATE TABLE IF NOT EXISTS team_costs (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    team_id INT NOT NULL,
-    item_name VARCHAR(100) NOT NULL,
-    amount DECIMAL(10, 2) NOT NULL,
-    is_mandatory BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
+    tournament_id INT,
+    match_date DATETIME,
+    home_team_id INT,
+    away_team_id INT,
+    location VARCHAR(255),
+    status ENUM('SCHEDULED', 'LIVE', 'COMPLETED') DEFAULT 'SCHEDULED',
+    home_score INT DEFAULT 0,
+    away_score INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- SEED DATA
+INSERT INTO tournaments (name, slug, city) VALUES ('Torneo Relámpago', 'torneo-relampago', 'Ciudad Fútbol');
 
--- Default Team
-INSERT INTO teams (name, slug) VALUES ('Real Florida FC', 'real-florida');
+INSERT INTO teams (name, slug, tournament_id) VALUES 
+('Alianza F.C.', 'alianza-fc', 1),
+('Los Galácticos', 'galacticos', 1);
 
--- Super Admin
-INSERT INTO users (team_id, username, password_hash, role) 
-VALUES (NULL, 'dyck.lopez', 'RealFlorida123', 'superadmin');
-
--- Team Admin
-INSERT INTO users (team_id, username, password_hash, role) 
-VALUES (1, 'felipe.guerrero', 'RealFlorida1', 'admin');
-
--- Default Positions for team 1
-INSERT INTO positions (team_id, name) VALUES 
-(1, 'Portero'), (1, 'Defensa Central'), (1, 'Lateral Izquierdo'), 
-(1, 'Lateral Derecho'), (1, 'Mediocampista Defensivo'), 
-(1, 'Mediocampista Central'), (1, 'Mediocampista Ofensivo'), 
-(1, 'Extremo Izquierdo'), (1, 'Extremo Derecho'), 
-(1, 'Delantero'), (1, 'Delantero Móvil');
-
--- Seed numbers (1-50)
-DELIMITER //
-CREATE PROCEDURE seed_team_numbers(t_id INT)
-BEGIN
-    DECLARE i INT DEFAULT 1;
-    WHILE i <= 50 DO
-        INSERT IGNORE INTO uniform_numbers (team_id, number, is_available) VALUES (t_id, i, TRUE);
-        SET i = i + 1;
-    END WHILE;
-END //
-DELIMITER ;
-CALL seed_team_numbers(1);
-
--- Default Settings
-INSERT INTO settings (team_id, team_name) 
-VALUES (1, 'Real Florida FC');
-
--- Default Costs for team 1
-INSERT INTO team_costs (team_id, item_name, amount) VALUES 
-(1, 'Inscripción', 40000.00),
-(1, 'Uniforme', 80000.00);
+-- SuperAdmin (Clave: admin123 hashed)
+INSERT INTO users (username, password_hash, role) 
+VALUES ('dyck.lopez', 'pbkdf2:sha256:600000$yR4p6JpW6k8aJ3f$75e9f8e4a9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e', 'superadmin');

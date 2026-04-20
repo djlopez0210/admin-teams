@@ -1,10 +1,20 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
-import { CheckCircle, XCircle, Info, AlertTriangle } from 'lucide-react';
+import { CheckCircle, XCircle, Info, AlertTriangle, Trophy } from 'lucide-react';
+import ConfirmModal from '../components/ConfirmModal';
 
 const NotificationContext = createContext();
 
 export const NotificationProvider = ({ children }) => {
     const [notifications, setNotifications] = useState([]);
+    const [confirmState, setConfirmState] = useState({ 
+        isOpen: false, 
+        title: '', 
+        message: '', 
+        type: 'info', 
+        confirmText: '', 
+        onConfirm: () => {}, 
+        onCancel: () => {} 
+    });
 
     const removeNotification = useCallback((id) => {
         setNotifications((prev) => prev.map(notif => 
@@ -22,7 +32,8 @@ export const NotificationProvider = ({ children }) => {
             success: <CheckCircle className="toast-icon" size={20} />,
             error: <XCircle className="toast-icon" size={20} />,
             warning: <AlertTriangle className="toast-icon" size={20} />,
-            info: <Info className="toast-icon" size={20} />
+            info: <Info className="toast-icon" size={20} />,
+            gold: <Trophy className="toast-icon" size={20} />
         };
 
         const newNotification = {
@@ -35,15 +46,45 @@ export const NotificationProvider = ({ children }) => {
 
         setNotifications((prev) => [...prev, newNotification]);
 
-        // Auto remove after 4 seconds
         setTimeout(() => {
             removeNotification(id);
         }, 4000);
     }, [removeNotification]);
 
+    const showConfirm = useCallback(({ title, message, type = 'info', confirmText = '', onConfirm, onCancel }) => {
+        return new Promise((resolve) => {
+            const handleConfirm = () => {
+                setConfirmState(prev => ({ ...prev, isOpen: false }));
+                if (onConfirm) onConfirm();
+                resolve(true);
+            };
+            
+            const handleCancel = () => {
+                setConfirmState(prev => ({ ...prev, isOpen: false }));
+                if (onCancel) onCancel();
+                resolve(false);
+            };
+
+            setConfirmState({
+                isOpen: true,
+                title,
+                message,
+                type,
+                confirmText,
+                onConfirm: handleConfirm,
+                onCancel: handleCancel
+            });
+        });
+    }, []);
+
     return (
-        <NotificationContext.Provider value={{ showNotification }}>
+        <NotificationContext.Provider value={{ showNotification, showConfirm }}>
             {children}
+            
+            <ConfirmModal 
+                {...confirmState}
+            />
+
             <div className="notification-container">
                 {notifications.map((n) => (
                     <div 
@@ -52,12 +93,9 @@ export const NotificationProvider = ({ children }) => {
                     >
                         <div className="toast-icon-wrapper">{n.icon}</div>
                         <div className="toast-content">{n.message}</div>
-                        <button 
-                            onClick={() => removeNotification(n.id)}
-                            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '0.25rem' }}
-                        >
-                            <XCircle size={14} />
-                        </button>
+                        <div className="toast-progress">
+                            <div className="toast-progress-bar"></div>
+                        </div>
                     </div>
                 ))}
             </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { NotificationProvider } from './context/NotificationContext'
 import { BrowserRouter as Router, Routes, Route, NavLink, Link } from 'react-router-dom'
-import { UserPlus, Settings as SettingsIcon, Trophy, Image } from 'lucide-react'
+import { UserPlus, Settings as SettingsIcon, Trophy, Image, Calendar } from 'lucide-react'
 import RegisterPlayer from './pages/RegisterPlayer'
 import PlayersList from './pages/PlayersList'
 import AdminPanel from './pages/AdminPanel'
@@ -9,6 +9,7 @@ import Login from './pages/Login'
 import LandingPage from './pages/LandingPage'
 import TournamentLanding from './pages/TournamentLanding'
 import TournamentAdminPanel from './pages/TournamentAdminPanel'
+import VeedorPanel from './pages/VeedorPanel'
 import ProtectedRoute from './components/ProtectedRoute'
 import { settingsService } from './services/api'
 import { useParams, useLocation } from 'react-router-dom'
@@ -57,6 +58,15 @@ function TeamLayout({ children, isPublic = true }) {
       });
       return;
     }
+
+    if (role === 'veedor') {
+      applySettings({
+        team_name: 'Panel de Veeduría',
+        team_logo_url: '',
+        favicon_url: ''
+      });
+      return;
+    }
     
     try {
       const res = await settingsService.get();
@@ -77,11 +87,13 @@ function TeamLayout({ children, isPublic = true }) {
     }
   };
 
+  const role = localStorage.getItem('adminRole');
+
   return (
     <>
       <header className="navbar glass">
         <Link 
-          to={`/${teamSlug || ''}`} 
+          to={role === 'veedor' ? '/veedor' : `/${teamSlug || ''}`} 
           className="logo" 
           style={{ 
             display: 'flex', 
@@ -89,7 +101,7 @@ function TeamLayout({ children, isPublic = true }) {
             gap: '0.75rem', 
             textDecoration: 'none', 
             color: 'inherit',
-            cursor: teamSlug ? 'pointer' : 'default'
+            cursor: (teamSlug || role === 'veedor') ? 'pointer' : 'default'
           }}
         >
           {settings.team_logo_url ? (
@@ -106,12 +118,33 @@ function TeamLayout({ children, isPublic = true }) {
             </NavLink>
           ) : (
             <>
-              <NavLink to="/admin" className="nav-link" end>
-                <SettingsIcon size={18} inline /> Dashboard
-              </NavLink>
-              <NavLink to="/players" className="nav-link">
-                <UserPlus size={18} inline /> Jugadores
-              </NavLink>
+              {role !== 'veedor' && role !== 'tournament_admin' && (
+                <>
+                  <NavLink to="/admin" className="nav-link" end>
+                    <SettingsIcon size={18} inline /> Dashboard
+                  </NavLink>
+                  <NavLink to="/players" className="nav-link">
+                    <UserPlus size={18} inline /> Jugadores
+                  </NavLink>
+                </>
+              )}
+              {role === 'tournament_admin' && (
+                <NavLink to="/tournament-admin" className="nav-link">
+                  <Trophy size={18} inline /> Torneos
+                </NavLink>
+              )}
+              {role === 'veedor' && (
+                <NavLink to="/veedor" className="nav-link">
+                  <Calendar size={18} inline /> Partidos
+                </NavLink>
+              )}
+              <button 
+                onClick={() => { localStorage.removeItem('adminAuthenticated'); window.location.href = '/login'; }}
+                className="nav-link" 
+                style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--error)' }}
+              >
+                Salir
+              </button>
             </>
           )}
         </nav>
@@ -145,7 +178,7 @@ function App() {
           <Route 
             path="/admin" 
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allowedRoles={['superadmin', 'admin']}>
                 <TeamLayout isPublic={false}><AdminPanel onSettingsUpdate={() => window.location.reload()} /></TeamLayout>
               </ProtectedRoute>
             } 
@@ -153,8 +186,24 @@ function App() {
           <Route 
             path="/tournament-admin" 
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allowedRoles={['superadmin', 'tournament_admin']}>
                 <TeamLayout isPublic={false}><TournamentAdminPanel /></TeamLayout>
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/team-admin" 
+            element={
+              <ProtectedRoute>
+                <TeamLayout isPublic={false}><AdminPanel /></TeamLayout>
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/veedor" 
+            element={
+              <ProtectedRoute allowedRoles={['superadmin', 'veedor']}>
+                <TeamLayout isPublic={false}><VeedorPanel /></TeamLayout>
               </ProtectedRoute>
             } 
           />
