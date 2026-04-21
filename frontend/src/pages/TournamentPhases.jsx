@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { Network, Plus, Trash2, Shuffle, Users, Play, Trophy, Calendar, Edit2, ChevronDown, ChevronUp, RotateCcw, MapPin, UserCheck, Clock } from 'lucide-react';
+import { Network, Plus, Trash2, Shuffle, Users, Play, Trophy, Calendar, Edit2, ChevronDown, ChevronUp, RotateCcw, MapPin, UserCheck, Clock, Repeat } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 import { api } from '../services/api';
 
@@ -23,7 +23,15 @@ const TournamentPhases = () => {
     
     // New Phase State
     const [showPhaseModal, setShowPhaseModal] = useState(false);
-    const [newPhase, setNewPhase] = useState({ name: '', order: 1, type: 'ROUND_ROBIN' });
+    const [newPhase, setNewPhase] = useState({ name: '', order: 1, type: 'ROUND_ROBIN', is_double_round: false });
+    
+    // Edit Phase State
+    const [showEditPhaseModal, setShowEditPhaseModal] = useState(false);
+    const [editingPhase, setEditingPhase] = useState({ id: null, name: '', order: 1, type: 'ROUND_ROBIN', is_double_round: false });
+    
+    // Edit Group State
+    const [showEditGroupModal, setShowEditGroupModal] = useState(false);
+    const [editingGroup, setEditingGroup] = useState({ id: null, name: '' });
 
     // New Group State
     const [showGroupModal, setShowGroupModal] = useState(false);
@@ -126,6 +134,68 @@ const TournamentPhases = () => {
         }
     };
 
+    const handleDeletePhase = async (phaseId) => {
+        const confirm = await showConfirm({
+            title: 'Eliminar Fase Completa',
+            message: '¿Está seguro de eliminar esta fase? Se borrarán TODOS los grupos, equipos y partidos asociados. Esta acción es irreversible.',
+            type: 'error',
+            confirmButtonText: 'Eliminar definitivamente'
+        });
+
+        if (confirm) {
+            try {
+                await api.delete(`/phases/${phaseId}`);
+                showNotification('Fase eliminada correctamente', 'success');
+                loadPhases();
+            } catch (err) {
+                showNotification('Error al eliminar la fase', 'error');
+            }
+        }
+    };
+
+    const handleUpdatePhase = async (e) => {
+        e.preventDefault();
+        try {
+            await api.put(`/phases/${editingPhase.id}`, editingPhase);
+            showNotification('Fase actualizada', 'success');
+            setShowEditPhaseModal(false);
+            loadPhases();
+        } catch (err) {
+            showNotification('Error al actualizar la fase', 'error');
+        }
+    };
+
+    const handleDeleteGroup = async (groupId) => {
+        const confirm = await showConfirm({
+            title: 'Eliminar Grupo',
+            message: '¿Está seguro de eliminar este grupo? Se borrarán todos los encuentros y posiciones asociadas.',
+            type: 'error',
+            confirmButtonText: 'Eliminar definitivamente'
+        });
+
+        if (confirm) {
+            try {
+                await api.delete(`/groups/${groupId}`);
+                showNotification('Grupo eliminado correctamente', 'success');
+                loadPhases();
+            } catch (err) {
+                showNotification('Error al eliminar el grupo', 'error');
+            }
+        }
+    };
+
+    const handleUpdateGroup = async (e) => {
+        e.preventDefault();
+        try {
+            await api.put(`/groups/${editingGroup.id}`, { name: editingGroup.name });
+            showNotification('Grupo actualizado', 'success');
+            setShowEditGroupModal(false);
+            loadPhases();
+        } catch (err) {
+            showNotification('Error al actualizar el grupo', 'error');
+        }
+    };
+
     const toggleGroup = async (groupId) => {
         const isExpanding = !expandedGroups[groupId];
         setExpandedGroups(prev => ({ ...prev, [groupId]: isExpanding }));
@@ -219,14 +289,15 @@ const TournamentPhases = () => {
     const handleGenerateFixtures = async (groupId) => {
         const confirmed = await showConfirm({
             title: 'Generar Calendario',
-            message: '¿Iniciar sorteo animado de encuentros para este grupo?',
-            type: 'info'
+            message: '¿Está seguro de hacer el sorteo automático? (Aceptar para ejecutar)',
+            type: 'info',
+            confirmButtonText: 'Generar'
         });
         if (!confirmed) return;
 
         try {
             const res = await api.post(`/groups/${groupId}/generate-fixtures`);
-            if (res.data.sequence) {
+            if (res.data.sequence && res.data.sequence.length > 0) {
                 runLotteryAnimation(res.data.sequence, 'Sorteo de Calendario', () => {
                     loadGroupMatches(groupId);
                     showNotification('¡Calendario de grupo generado exitosamente!', 'gold');
@@ -294,7 +365,7 @@ const TournamentPhases = () => {
             await api.post(`/tournaments/${safeSlug}/phases`, newPhase);
             showNotification('Fase creada correctamente', 'success');
             setShowPhaseModal(false);
-            setNewPhase({ name: '', order: phases.length + 1, type: 'ROUND_ROBIN' });
+            setNewPhase({ name: '', order: phases.length + 1, type: 'ROUND_ROBIN', is_double_round: false });
             loadPhases();
         } catch (err) {
             showNotification('Error al crear fase', 'error');
@@ -316,8 +387,8 @@ const TournamentPhases = () => {
 
     const handleRunDraw = async (phaseId) => {
         const confirmed = await showConfirm({
-            title: 'Sorteo de Grupos',
-            message: '¿Deseas iniciar el sorteo animado de equipos para esta fase?',
+            title: 'Sorteo Automático',
+            message: '¿Está seguro de hacer el sorteo automático? (Aceptar para ejecutar)',
             type: 'gold',
             confirmButtonText: '¡Comenzar Sorteo!'
         });
@@ -325,7 +396,7 @@ const TournamentPhases = () => {
 
         try {
             const res = await api.post(`/phases/${phaseId}/draw`);
-            if (res.data.sequence) {
+            if (res.data.sequence && res.data.sequence.length > 0) {
                 runLotteryAnimation(res.data.sequence, 'Sorteo de Grupos', () => {
                     loadPhases();
                     showNotification('¡Sorteo de grupos completado con éxito!', 'gold');
@@ -429,8 +500,29 @@ const TournamentPhases = () => {
                             <div>
                                 <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                     <Trophy size={20} color="var(--primary)" />Fase {phase.order}: {phase.name}
+                                    <div style={{ display: 'flex', gap: '0.2rem', marginLeft: '0.8rem' }}>
+                                        <button 
+                                            onClick={() => { setEditingPhase({ id: phase.id, name: phase.name, order: phase.order, type: phase.type, is_double_round: phase.is_double_round }); setShowEditPhaseModal(true); }}
+                                            style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', padding: '4px', display: 'flex', opacity: 0.8 }}
+                                            title="Editar fase"
+                                        >
+                                            <Edit2 size={14} />
+                                        </button>
+                                        <button 
+                                            onClick={() => handleDeletePhase(phase.id)}
+                                            style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', padding: '4px', display: 'flex', opacity: 0.8 }}
+                                            title="Eliminar fase completa"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
                                 </h3>
-                                <span className="label" style={{ display: 'inline-block', marginTop: '0.5rem' }}>{phase.type}</span>
+                                <span className="label" style={{ display: 'inline-block', marginTop: '0.5rem', background: 'rgba(255,255,255,0.1)' }}>{phase.type}</span>
+                                {phase.is_double_round && (
+                                    <span className="label" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.5rem', marginLeft: '0.5rem', background: 'rgba(212, 175, 55, 0.2)', color: '#d4af37' }}>
+                                        <Repeat size={12} /> Ida y Vuelta
+                                    </span>
+                                )}
                             </div>
                             <div style={{ display: 'flex', gap: '1rem' }}>
                                 <button className="btn btn-secondary" onClick={() => { setActivePhaseId(phase.id); setShowGroupModal(true); }}>
@@ -454,6 +546,22 @@ const TournamentPhases = () => {
                                                 <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                                     {group.name} 
                                                     <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>({group.teams.length} equipos)</span>
+                                                    <div style={{ display: 'flex', gap: '0.2rem', marginLeft: '0.5rem' }}>
+                                                        <button 
+                                                            onClick={() => { setEditingGroup({ id: group.id, name: group.name }); setShowEditGroupModal(true); }}
+                                                            style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', padding: '2px', display: 'flex', opacity: 0.7 }}
+                                                            title="Editar nombre"
+                                                        >
+                                                            <Edit2 size={12} />
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => handleDeleteGroup(group.id)}
+                                                            style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', padding: '2px', display: 'flex', opacity: 0.7 }}
+                                                            title="Eliminar grupo"
+                                                        >
+                                                            <Trash2 size={12} />
+                                                        </button>
+                                                    </div>
                                                 </h4>
                                                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                                                     <button 
@@ -502,24 +610,29 @@ const TournamentPhases = () => {
                                             {expandedGroups[group.id] && (
                                                 <div className="animate-fade-in" style={{ marginTop: '0.5rem' }}>
                                                     <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '1rem' }}>
-                                                        <button className="btn" title="Generar Calendario Automático" style={{ flex: 1, background: 'var(--success)', color: 'white' }} onClick={() => handleGenerateFixtures(group.id)}>
-                                                            <Shuffle size={16} />
+                                                        <button 
+                                                            className="btn btn-primary" 
+                                                            title="Generar Calendario Automático" 
+                                                            style={{ flex: 1, background: 'var(--success)', color: 'white' }} 
+                                                            onClick={() => handleGenerateFixtures(group.id)}
+                                                        >
+                                                            <Shuffle size={14} /> Generar Calendario
                                                         </button>
-                                                <button 
-                                                    className="btn btn-primary" 
-                                                    style={{ flex: 1, background: 'rgba(56, 189, 248, 0.2)', color: 'var(--primary)' }} 
-                                                    onClick={() => { 
-                                                        setActiveGroupId(group.id); 
-                                                        setActivePhaseId(phase.id); 
-                                                        setEditingMatch(null); 
-                                                        setMatchData({ home_team_id: '', away_team_id: '', match_date: '', match_day: 1, group_id: group.id, location: '', referee: '' }); 
-                                                        setModalTeams(group.teams || []); // Pass teams directly
-                                                        setShowMatchModal(true); 
-                                                    }}
-                                                    title="Crear Partido Manual"
-                                                >
-                                                    <Plus size={16} />
-                                                </button>
+                                                        <button 
+                                                            className="btn btn-primary" 
+                                                            style={{ flex: 1, background: 'rgba(56, 189, 248, 0.2)', color: 'var(--primary)' }} 
+                                                            onClick={() => { 
+                                                                setActiveGroupId(group.id); 
+                                                                setActivePhaseId(phase.id); 
+                                                                setEditingMatch(null); 
+                                                                setMatchData({ home_team_id: '', away_team_id: '', match_date: '', match_day: 1, group_id: group.id, location: '', referee: '' }); 
+                                                                setModalTeams(group.teams || []); // Pass teams directly
+                                                                setShowMatchModal(true); 
+                                                            }}
+                                                            title="Crear Partido Manual"
+                                                        >
+                                                            <Plus size={16} />
+                                                        </button>
                                                         <button className="btn" title="Restaurar / Limpiar Calendario" style={{ flex: 1, background: 'rgba(239, 68, 68, 0.1)', color: 'var(--error)' }} onClick={() => handleResetFixtures(group.id)}>
                                                             <RotateCcw size={16} />
                                                         </button>
@@ -586,6 +699,69 @@ const TournamentPhases = () => {
                 ))
             )}
 
+            {/* Modal: Editar Fase */}
+            {showEditPhaseModal && (
+                <div className="modal-overlay">
+                    <div className="modal-content glass animate-fade-in" style={{ maxWidth: '450px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
+                            <Edit2 size={24} color="var(--primary)" />
+                            <h2 style={{ margin: 0 }}>Editar Fase</h2>
+                        </div>
+                        <form onSubmit={handleUpdatePhase}>
+                            <div className="form-group">
+                                <label className="label">Nombre de la Fase</label>
+                                <input 
+                                    type="text" 
+                                    className="input" 
+                                    value={editingPhase.name} 
+                                    onChange={e => setEditingPhase({...editingPhase, name: e.target.value})}
+                                    placeholder="Ej: Fase de Grupos, Octavos, etc."
+                                    required 
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="label">Tipo de Competencia</label>
+                                <select className="select" value={editingPhase.type} onChange={e => setEditingPhase({...editingPhase, type: e.target.value})}>
+                                    <option value="ROUND_ROBIN">Grupos (Todos contra Todos)</option>
+                                </select>
+                            </div>
+
+                            <div className="form-group" style={{ marginTop: '1rem' }}>
+                                <label className="label" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', cursor: 'pointer' }}>
+                                    <div 
+                                        onClick={() => setEditingPhase({...editingPhase, is_double_round: !editingPhase.is_double_round})}
+                                        style={{ 
+                                            width: '40px', 
+                                            height: '20px', 
+                                            background: editingPhase.is_double_round ? 'var(--primary)' : 'rgba(255,255,255,0.1)', 
+                                            borderRadius: '20px', 
+                                            position: 'relative',
+                                            transition: 'all 0.3s'
+                                        }}
+                                    >
+                                        <div style={{ 
+                                            position: 'absolute', 
+                                            top: '2px', 
+                                            left: editingPhase.is_double_round ? '22px' : '2px', 
+                                            width: '16px', 
+                                            height: '16px', 
+                                            background: 'white', 
+                                            borderRadius: '50%',
+                                            transition: 'all 0.3s'
+                                        }} />
+                                    </div>
+                                    <span>Partidos de Ida y Vuelta</span>
+                                </label>
+                            </div>
+                            <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem' }}>
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowEditPhaseModal(false)}>Cancelar</button>
+                                <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>Guardar Cambios</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
             {/* Modal: Fase */}
             {showPhaseModal && (
                 <div className="modal-overlay">
@@ -600,10 +776,38 @@ const TournamentPhases = () => {
                             <div className="form-group">
                                 <label className="label">Tipo de Competencia</label>
                                 <select className="select" value={newPhase.type} onChange={e => setNewPhase({...newPhase, type: e.target.value})}>
-                                    <option value="ROUND_ROBIN">Grupos (Todos contra Todos)</option>
-                                    <option value="SINGLE_ELIMINATION" disabled>Llaves (Playoffs) - ¡Pronto!</option>
-                                    <option value="GLOBAL_TABLE" disabled>Tabla Única - ¡Pronto!</option>
                                 </select>
+                            </div>
+
+                            <div className="form-group" style={{ marginTop: '1rem' }}>
+                                <label className="label" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', cursor: 'pointer' }}>
+                                    <div 
+                                        onClick={() => setNewPhase({...newPhase, is_double_round: !newPhase.is_double_round})}
+                                        style={{ 
+                                            width: '40px', 
+                                            height: '20px', 
+                                            background: newPhase.is_double_round ? 'var(--primary)' : 'rgba(255,255,255,0.1)', 
+                                            borderRadius: '20px', 
+                                            position: 'relative',
+                                            transition: 'all 0.3s'
+                                        }}
+                                    >
+                                        <div style={{ 
+                                            position: 'absolute', 
+                                            top: '2px', 
+                                            left: newPhase.is_double_round ? '22px' : '2px', 
+                                            width: '16px', 
+                                            height: '16px', 
+                                            background: 'white', 
+                                            borderRadius: '50%',
+                                            transition: 'all 0.3s'
+                                        }} />
+                                    </div>
+                                    <span>Partidos de Ida y Vuelta</span>
+                                </label>
+                                <p style={{ fontSize: '0.75rem', opacity: 0.5, marginTop: '0.4rem' }}>
+                                    Si se activa, los equipos se enfrentarán dos veces (intercambiando localía).
+                                </p>
                             </div>
                             <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem' }}>
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowPhaseModal(false)}>Cancelar</button>
@@ -614,7 +818,36 @@ const TournamentPhases = () => {
                 </div>
             )}
 
-            {/* Modal: Grupo */}
+            {/* Modal: Editar Grupo */}
+            {showEditGroupModal && (
+                <div className="modal-overlay">
+                    <div className="modal-content glass animate-fade-in" style={{ maxWidth: '400px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
+                            <Edit2 size={24} color="var(--primary)" />
+                            <h2 style={{ margin: 0 }}>Editar Grupo</h2>
+                        </div>
+                        <form onSubmit={handleUpdateGroup}>
+                            <div className="form-group">
+                                <label className="label">Nombre del Grupo</label>
+                                <input 
+                                    type="text" 
+                                    className="input" 
+                                    value={editingGroup.name} 
+                                    onChange={e => setEditingGroup({...editingGroup, name: e.target.value})}
+                                    required 
+                                    autoFocus
+                                />
+                            </div>
+                            <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem' }}>
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowEditGroupModal(false)}>Cancelar</button>
+                                <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>Guardar Cambios</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal: Fase */}
             {showGroupModal && (
                 <div className="modal-overlay">
                     <div className="modal-content glass animate-fade-in" style={{ maxWidth: '400px' }}>

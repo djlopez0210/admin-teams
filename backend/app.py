@@ -45,12 +45,26 @@ with app.app_context():
         db.session.execute(text("CREATE TABLE IF NOT EXISTS team_costs (id INT AUTO_INCREMENT PRIMARY KEY, team_id INT, description VARCHAR(255), amount DECIMAL(10,2), is_mandatory BOOLEAN DEFAULT 1)"))
         
         # New Tables for Phases and Groups
-        db.session.execute(text("CREATE TABLE IF NOT EXISTS tournament_phases (id INT AUTO_INCREMENT PRIMARY KEY, tournament_id INT, name VARCHAR(100), phase_order INT DEFAULT 1, phase_type VARCHAR(50) DEFAULT 'ROUND_ROBIN', status VARCHAR(50) DEFAULT 'PENDING', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
+        db.session.execute(text("CREATE TABLE IF NOT EXISTS tournament_phases (id INT AUTO_INCREMENT PRIMARY KEY, tournament_id INT, name VARCHAR(100), phase_order INT DEFAULT 1, phase_type VARCHAR(50) DEFAULT 'ROUND_ROBIN', is_double_round BOOLEAN DEFAULT 0, status VARCHAR(50) DEFAULT 'PENDING', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
         db.session.execute(text("CREATE TABLE IF NOT EXISTS tournament_groups (id INT AUTO_INCREMENT PRIMARY KEY, tournament_id INT, phase_id INT, name VARCHAR(100), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
         db.session.execute(text("CREATE TABLE IF NOT EXISTS group_teams (group_id INT, team_id INT, points INT DEFAULT 0, goals_for INT DEFAULT 0, goals_against INT DEFAULT 0, matches_played INT DEFAULT 0, PRIMARY KEY (group_id, team_id))"))
 
-        # Schema Upgrades (Add missing columns)
+        # Schema Upgrades (Add missing columns safely)
+        existing_columns = db.session.execute(text("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_name = 'teams' AND table_schema = (SELECT DATABASE())")).fetchall()
+        column_names = [row[0] for row in existing_columns]
+        
+        for col, col_type in [('delegate_phone', 'VARCHAR(20)'), ('delegate_address', 'TEXT'), ('delegate_city', 'VARCHAR(100)')]:
+            if col not in column_names:
+                try:
+                    db.session.execute(text(f"ALTER TABLE teams ADD COLUMN {col} {col_type}"))
+                    db.session.commit()
+                    print(f"✅ Added missing column: {col}")
+                except Exception as ex:
+                    print(f"⚠️ Could not add column {col}: {ex}")
+                    db.session.rollback()
         upgrades = [
+            # Phases
+            "ALTER TABLE tournament_phases ADD COLUMN is_double_round BOOLEAN DEFAULT 0",
             # Tournaments
             "ALTER TABLE tournaments ADD COLUMN rules_pdf_url TEXT",
             "ALTER TABLE tournaments ADD COLUMN registration_open BOOLEAN DEFAULT 1",
@@ -1376,7 +1390,7 @@ def get_tournament_phases(slug):
         if not t_id: return jsonify({"error": "Tournament not found"}), 404
     
     phases_result = db.session.execute(text(
-        "SELECT id, name, phase_order, phase_type, status FROM tournament_phases WHERE tournament_id = :id ORDER BY phase_order ASC"
+        "SELECT id, name, phase_order, phase_type, status, is_double_round FROM tournament_phases WHERE tournament_id = :id ORDER BY phase_order ASC"
     ), {"id": t_id}).fetchall()
     
     phases = []
@@ -1399,7 +1413,7 @@ def get_tournament_phases(slug):
             groups.append({"id": g_id, "name": g[1], "teams": teams})
             
         phases.append({
-            "id": p_id, "name": p[1], "order": p[2], "type": p[3], "status": p[4], "groups": groups
+            "id": p_id, "name": p[1], "order": p[2], "type": p[3], "status": p[4], "is_double_round": bool(p[5]), "groups": groups
         })
     return jsonify(phases)
 
@@ -1456,10 +1470,14 @@ def create_tournament_phase(slug):
     data = request.json
     try:
         result = db.session.execute(text(
-            "INSERT INTO tournament_phases (tournament_id, name, phase_order, phase_type) "
-            "VALUES (:t_id, :name, :order, :type)"
+            "INSERT INTO tournament_phases (tournament_id, name, phase_order, phase_type, is_double_round) "
+            "VALUES (:tid, :name, :order, :type, :double)"
         ), {
-            "t_id": t_id, "name": data.get('name'), "order": data.get('order', 1), "type": data.get('type', 'ROUND_ROBIN')
+            "tid": t_id, 
+            "name": data.get('name'), 
+            "order": data.get('order', 1), 
+            "type": data.get('type', 'ROUND_ROBIN'),
+            "double": 1 if data.get('is_double_round') else 0
         })
         phase_id = result.lastrowid
         db.session.commit()
@@ -1467,6 +1485,45 @@ def create_tournament_phase(slug):
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/phases/<int:phase_id>', methods=['PUT', 'DELETE'])
+def manage_phase_operations(phase_id):
+    if request.method == 'PUT':
+        data = request.json
+        try:
+            db.session.execute(text(
+                "UPDATE tournament_phases SET name = :name, is_double_round = :double WHERE id = :pid"
+            ), {
+                "name": data.get('name'), 
+                "double": 1 if data.get('is_double_round') else 0,
+                "pid": phase_id
+            })
+            db.session.commit()
+            return jsonify({"message": "Fase actualizada correctamente"})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": str(e)}), 500
+            
+    if request.method == 'DELETE':
+        try:
+            # 1. Clean groups inside this phase
+            groups = db.session.execute(text("SELECT id FROM tournament_groups WHERE phase_id = :pid"), {"pid": phase_id}).fetchall()
+            for g in groups:
+                gid = g[0]
+                # Cascaded cleanup for each group
+                db.session.execute(text("DELETE FROM match_events WHERE match_id IN (SELECT id FROM matches WHERE group_id = :gid)"), {"gid": gid})
+                db.session.execute(text("DELETE FROM match_lineups WHERE match_id IN (SELECT id FROM matches WHERE group_id = :gid)"), {"gid": gid})
+                db.session.execute(text("DELETE FROM matches WHERE group_id = :gid"), {"gid": gid})
+                db.session.execute(text("DELETE FROM group_teams WHERE group_id = :gid"), {"gid": gid})
+                db.session.execute(text("DELETE FROM tournament_groups WHERE id = :gid"), {"gid": gid})
+                
+            # 2. Finally delete the phase
+            db.session.execute(text("DELETE FROM tournament_phases WHERE id = :pid"), {"pid": phase_id})
+            db.session.commit()
+            return jsonify({"message": "Fase eliminada correctamente"})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": str(e)}), 500
 
 @app.route('/api/phases/<int:phase_id>/groups', methods=['POST'])
 def create_phase_group(phase_id):
@@ -1485,6 +1542,36 @@ def create_phase_group(phase_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/groups/<int:group_id>', methods=['PUT', 'DELETE'])
+def manage_group_operations(group_id):
+    if request.method == 'PUT':
+        data = request.json
+        try:
+            db.session.execute(text(
+                "UPDATE tournament_groups SET name = :name WHERE id = :gid"
+            ), {"name": data.get('name'), "gid": group_id})
+            db.session.commit()
+            return jsonify({"message": "Grupo actualizado"})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": str(e)}), 500
+            
+    if request.method == 'DELETE':
+        try:
+            # 1. Matches and related (events, lineups)
+            db.session.execute(text("DELETE FROM match_events WHERE match_id IN (SELECT id FROM matches WHERE group_id = :gid)"), {"gid": group_id})
+            db.session.execute(text("DELETE FROM match_lineups WHERE match_id IN (SELECT id FROM matches WHERE group_id = :gid)"), {"gid": group_id})
+            db.session.execute(text("DELETE FROM matches WHERE group_id = :gid"), {"gid": group_id})
+            # 2. Group teams
+            db.session.execute(text("DELETE FROM group_teams WHERE group_id = :gid"), {"gid": group_id})
+            # 3. Finally the group
+            db.session.execute(text("DELETE FROM tournament_groups WHERE id = :gid"), {"gid": group_id})
+            db.session.commit()
+            return jsonify({"message": "Grupo eliminado correctamente"})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": str(e)}), 500
 
 @app.route('/api/groups/<int:group_id>/teams', methods=['GET', 'POST'])
 def manage_group_teams(group_id):
@@ -1683,6 +1770,13 @@ def reset_group_matches(group_id):
         if played:
             return jsonify({"error": "No se puede reiniciar el calendario: ya existen partidos terminados."}), 400
             
+        # Cascaded delete for related records
+        db.session.execute(text(
+            "DELETE FROM match_events WHERE match_id IN (SELECT id FROM matches WHERE group_id = :gid)"
+        ), {"gid": group_id})
+        db.session.execute(text(
+            "DELETE FROM match_lineups WHERE match_id IN (SELECT id FROM matches WHERE group_id = :gid)"
+        ), {"gid": group_id})
         db.session.execute(text("DELETE FROM matches WHERE group_id = :gid"), {"gid": group_id})
         db.session.commit()
         return jsonify({"message": "Group matches reset"}), 200
@@ -1695,10 +1789,13 @@ def generate_group_fixtures(group_id):
     try:
         # 1. Get teams and phase/tournament context
         info = db.session.execute(text(
-            "SELECT phase_id, tournament_id FROM tournament_groups WHERE id = :gid"
+            "SELECT g.phase_id, g.tournament_id, p.is_double_round "
+            "FROM tournament_groups g "
+            "JOIN tournament_phases p ON g.phase_id = p.id "
+            "WHERE g.id = :gid"
         ), {"gid": group_id}).fetchone()
         if not info: return jsonify({"error": "Group not found"}), 404
-        p_id, t_id = info
+        p_id, t_id, is_double = info
 
         # NEW VALIDATION: Cannot re-draw if matches started/finished
         check_progress = db.session.execute(text(
@@ -1706,17 +1803,15 @@ def generate_group_fixtures(group_id):
         ), {"gid": group_id}).fetchone()
         if check_progress:
             return jsonify({"error": "No se pueden re-sortear grupos con partidos ya iniciados o finalizados."}), 400
-        
+        # Get teams in group
         teams_res = db.session.execute(text(
             "SELECT team_id FROM group_teams WHERE group_id = :gid"
         ), {"gid": group_id}).fetchall()
         teams = [t[0] for t in teams_res]
         
         if len(teams) < 2:
-            return jsonify({"error": "Need at least 2 teams in the group"}), 400
+            return jsonify({"error": "Se necesitan al menos 2 equipos en el grupo para generar el calendario."}), 400
             
-        # Clone teams and shuffle for randomization if desired, but Round Robin is systematic
-        # If we want it "random" we can shuffle once at start
         import random
         random.shuffle(teams)
 
@@ -1729,31 +1824,44 @@ def generate_group_fixtures(group_id):
         
         # Round Robin Algorithm (Polygon Method)
         generated_matches = []
+        pairs = [] # To store pairs for second leg
+        
         for r in range(rounds):
             for i in range(matches_per_round):
-                home_id = teams[i]
-                away_id = teams[n - 1 - i]
-                
-                if home_id is not None and away_id is not None:
-                    db.session.execute(text(
-                        "INSERT INTO matches (tournament_id, phase_id, group_id, home_team_id, away_team_id, match_day, status) "
-                        "VALUES (:t_id, :p_id, :g_id, :home, :away, :day, 'SCHEDULED')"
-                    ), {
-                        "t_id": t_id, "p_id": p_id, "g_id": group_id,
-                        "home": home_id, "away": away_id, "day": r + 1
-                    })
-                    
-                    # Fetch names and logos for animation
-                    h_res = db.session.execute(text("SELECT name, logo_url FROM teams WHERE id = :id"), {"id": home_id}).fetchone()
-                    a_res = db.session.execute(text("SELECT name, logo_url FROM teams WHERE id = :id"), {"id": away_id}).fetchone()
-                    
-                    generated_matches.append({
-                        "home": h_res[0], "home_logo": h_res[1],
-                        "away": a_res[0], "away_logo": a_res[1],
-                        "day": r + 1
-                    })
+                h = teams[i]
+                a = teams[n - 1 - i]
+                if h is not None and a is not None:
+                    pairs.append((h, a, r + 1))
             # Rotate teams
             teams = [teams[0]] + [teams[-1]] + teams[1:-1]
+            
+        # If double round, add the reverse matches
+        if is_double:
+            second_leg = []
+            for h, a, day in pairs:
+                second_leg.append((a, h, day + rounds))
+            pairs.extend(second_leg)
+            rounds *= 2
+
+        # Final insertion to DB
+        for h_id, a_id, day in pairs:
+            db.session.execute(text(
+                "INSERT INTO matches (tournament_id, phase_id, group_id, home_team_id, away_team_id, match_day, status) "
+                "VALUES (:t_id, :p_id, :g_id, :home, :away, :day, 'SCHEDULED')"
+            ), {
+                "t_id": t_id, "p_id": p_id, "g_id": group_id,
+                "home": h_id, "away": a_id, "day": day
+            })
+            
+            # Fetch for animation
+            h_res = db.session.execute(text("SELECT name, logo_url FROM teams WHERE id = :id"), {"id": h_id}).fetchone()
+            a_res = db.session.execute(text("SELECT name, logo_url FROM teams WHERE id = :id"), {"id": a_id}).fetchone()
+            
+            generated_matches.append({
+                "home": h_res[0], "home_logo": h_res[1],
+                "away": a_res[0], "away_logo": a_res[1],
+                "day": day
+            })
             
         db.session.commit()
         return jsonify({
@@ -1795,12 +1903,18 @@ def generate_phase_draw(phase_id):
     try:
         # Check if phase exists
         phase = db.session.execute(text("SELECT tournament_id FROM tournament_phases WHERE id = :pid"), {"pid": phase_id}).fetchone()
-        if not phase: return jsonify({"error": "Phase not found"}), 404
+        print(f"DEBUG DRAW - Phase ID: {phase_id}, Found Phase: {phase}", flush=True)
+        if not phase: 
+            print(f"DEBUG DRAW - ERROR: Phase {phase_id} not found", flush=True)
+            return jsonify({"error": "Phase not found"}), 404
         t_id = phase[0]
         
         # Get groups in this phase
         groups = db.session.execute(text("SELECT id FROM tournament_groups WHERE phase_id = :pid"), {"pid": phase_id}).fetchall()
-        if not groups: return jsonify({"error": "Create groups first"}), 400
+        print(f"DEBUG DRAW - Found Groups: {groups}", flush=True)
+        if not groups: 
+            print(f"DEBUG DRAW - ERROR: No groups found in phase {phase_id}", flush=True)
+            return jsonify({"error": "Create groups first"}), 400
         group_ids = [g[0] for g in groups]
         
         # Get all unassigned teams in the tournament
@@ -1813,9 +1927,10 @@ def generate_phase_draw(phase_id):
         print(f"DEBUG DRAW - Phase ID: {phase_id}, T_ID: {t_id}, All Teams: {all_teams}, Assigned: {assigned_teams}", flush=True)
         unassigned_teams = [t[0] for t in all_teams if t[0] not in assigned_teams]
         
-        print(f"DEBUG DRAW - Unassigned Teams: {unassigned_teams}", flush=True)
+        print(f"DEBUG DRAW - Final Unassigned Teams: {unassigned_teams}", flush=True)
         if not unassigned_teams:
-            return jsonify({"message": "No unassigned teams remaining"}), 200
+            print(f"DEBUG DRAW - WARNING: No unassigned teams for tournament {t_id}", flush=True)
+            return jsonify({"message": "No unassigned teams remaining", "sequence": []}), 200
             
         random.shuffle(unassigned_teams)
         
@@ -2101,7 +2216,6 @@ def login():
         result = db.session.execute(text(sql), {"user": username}).fetchone()
         
         if not result:
-            print(f"Login failed: User {username} not found")
             return jsonify({"error": "Invalid credentials"}), 401
             
         user_id = result[0]
@@ -2163,8 +2277,7 @@ def create_team():
         slug = data.get('slug')
         if not slug and name:
             slug = name.lower().replace(" ", "-")
-        admin_user = data.get('admin_username')
-        admin_pass = data.get('admin_password')
+        
         tournament_id = data.get('tournament_id')
         # Ensure tournament_id is a valid integer or None
         t_id = int(tournament_id) if tournament_id and str(tournament_id).isdigit() else None
@@ -2174,9 +2287,20 @@ def create_team():
         del_doc = data.get('delegate_document')
         del_name = data.get('delegate_name')
         del_email = data.get('delegate_email')
+        del_phone = data.get('delegate_phone')
+        del_address = data.get('delegate_address')
+        del_city = data.get('delegate_city')
         
-        if not all([name, slug, admin_user, admin_pass]):
-            return jsonify({"error": "Name, Admin User and Password are required"}), 400
+        if not all([name, slug, del_email]):
+            return jsonify({"error": "Nombre del equipo y Email son obligatorios"}), 400
+            
+        # Automatic User Generation
+        import secrets
+        import string
+        admin_user = del_email
+        # Generate random password
+        alphabet = string.ascii_letters + string.digits
+        admin_pass = ''.join(secrets.choice(alphabet) for i in range(8))
             
         # Check if registration is open (only if tournament is selected)
         if t_id:
@@ -2187,9 +2311,13 @@ def create_team():
         # 1. Create Team
         res = db.session.execute(
             text("""INSERT INTO teams 
-                 (name, slug, tournament_id, delegate_document, delegate_name, delegate_email, registration_pin, logo_url) 
-                 VALUES (:name, :slug, :tid, :ddoc, :dname, :demail, :pin, :logo)"""),
-            {"name": name, "slug": slug, "tid": t_id, "ddoc": del_doc, "dname": del_name, "demail": del_email, "pin": reg_pin or None, "logo": data.get('logo_url')}
+                 (name, slug, tournament_id, delegate_document, delegate_name, delegate_email, delegate_phone, delegate_address, delegate_city, registration_pin, logo_url) 
+                 VALUES (:name, :slug, :tid, :ddoc, :dname, :demail, :dphone, :daddress, :dcity, :pin, :logo)"""),
+            {
+                "name": name, "slug": slug, "tid": t_id, "ddoc": del_doc, "dname": del_name, 
+                "demail": del_email, "dphone": del_phone, "daddress": del_address, "dcity": del_city,
+                "pin": reg_pin or None, "logo": data.get('logo_url')
+            }
         )
         team_id = res.lastrowid
         
@@ -2202,6 +2330,16 @@ def create_team():
             text("INSERT INTO users (team_id, username, password_hash, role) VALUES (:tid, :user, :hash, 'admin')"),
             {"tid": team_id, "user": admin_user, "hash": pass_hash}
         )
+
+        # ... (settings initialization stays same)
+        return jsonify({
+            "message": "Equipo creado exitosamente", 
+            "team_id": team_id,
+            "credentials": {
+                "username": admin_user,
+                "password": admin_pass
+            }
+        }), 201
         
         # 3. Initialize Settings (optional failure)
         try:
@@ -2273,6 +2411,9 @@ def update_team(team_id):
                     delegate_document = :ddoc,
                     delegate_name = :dname,
                     delegate_email = :demail,
+                    delegate_phone = :dphone,
+                    delegate_address = :daddress,
+                    delegate_city = :dcity,
                     registration_pin = :pin
                     WHERE id = :tid"""),
             {
@@ -2280,6 +2421,9 @@ def update_team(team_id):
                 "ddoc": data.get('delegate_document'),
                 "dname": data.get('delegate_name'),
                 "demail": data.get('delegate_email'),
+                "dphone": data.get('delegate_phone'),
+                "daddress": data.get('delegate_address'),
+                "dcity": data.get('delegate_city'),
                 "pin": data.get('registration_pin') or None,
                 "tid": team_id
             }
@@ -2300,6 +2444,26 @@ def update_team(team_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": "Check for duplicate slug or username"}), 500
+
+@app.route('/api/teams/<int:team_id>', methods=['DELETE'])
+def delete_team(team_id):
+    try:
+        # 1. Delete group memberships
+        db.session.execute(text("DELETE FROM group_teams WHERE team_id = :tid"), {"tid": team_id})
+        # 2. Delete team users
+        db.session.execute(text("DELETE FROM users WHERE team_id = :tid"), {"tid": team_id})
+        # 3. Delete team players
+        db.session.execute(text("DELETE FROM players WHERE team_id = :tid"), {"tid": team_id})
+        # 4. Delete team settings
+        db.session.execute(text("DELETE FROM settings WHERE team_id = :tid"), {"tid": team_id})
+        # 5. Delete the team itself
+        db.session.execute(text("DELETE FROM teams WHERE id = :tid"), {"tid": team_id})
+        
+        db.session.commit()
+        return jsonify({"message": "Team deleted successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/logs', methods=['GET'])
 def get_logs():

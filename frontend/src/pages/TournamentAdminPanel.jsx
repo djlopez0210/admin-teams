@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, Trophy, Users, FileText, Settings, UserCheck, LogOut, ChevronRight, Download, Network, Edit2, Upload, Calendar, Zap, AlertTriangle, Palette, Save } from 'lucide-react';
+import { Plus, Trash2, Trophy, Users, FileText, Settings, UserCheck, LogOut, ChevronRight, Download, Network, Edit2, Upload, Calendar, Zap, AlertTriangle, Palette, Save, Copy, Check, Info } from 'lucide-react';
 import { tournamentService, refereeService, adminService, settingsService, api } from '../services/api';
 import { useNotification } from '../context/NotificationContext';
 import TournamentPhases from './TournamentPhases';
@@ -16,7 +16,18 @@ const TournamentAdminPanel = () => {
     const [showPlayersModal, setShowPlayersModal] = useState(false);
     const [viewingTeamName, setViewingTeamName] = useState('');
     const [referees, setReferees] = useState([]);
-    const [newTeam, setNewTeam] = useState({ name: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '' });
+    const [newTeam, setNewTeam] = useState({ 
+        name: '', 
+        delegate_document: '', 
+        delegate_name: '', 
+        delegate_email: '', 
+        delegate_phone: '',
+        delegate_address: '',
+        delegate_city: '',
+        registration_pin: '' 
+    });
+    const [generatedCredentials, setGeneratedCredentials] = useState(null);
+    const [showCredentialsModal, setShowCredentialsModal] = useState(false);
     const [editingTeamId, setEditingTeamId] = useState(null);
     const [newReferee, setNewReferee] = useState({ document_number: '', full_name: '', age: '', phone: '', address: '' });
     const [showTeamForm, setShowTeamForm] = useState(false);
@@ -113,14 +124,28 @@ const TournamentAdminPanel = () => {
             if (editingTeamId) {
                 await adminService.updateTeam(editingTeamId, teamData);
                 showNotification('Equipo actualizado', 'success');
+                setEditingTeamId(null);
+                setShowTeamForm(false);
             } else {
-                await adminService.createTeam(teamData);
+                const res = await adminService.createTeam(teamData);
                 showNotification('Equipo creado exitosamente', 'success');
+                if (res.data.credentials) {
+                    setGeneratedCredentials(res.data.credentials);
+                    setShowCredentialsModal(true);
+                }
+                setShowTeamForm(false);
             }
             
-            setNewTeam({ name: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '' });
-            setEditingTeamId(null);
-            setShowTeamForm(false);
+            setNewTeam({ 
+                name: '', 
+                delegate_document: '', 
+                delegate_name: '', 
+                delegate_email: '', 
+                delegate_phone: '',
+                delegate_address: '',
+                delegate_city: '',
+                registration_pin: '' 
+            });
             loadData();
         } catch (err) {
             showNotification(err.response?.data?.error || 'Error al procesar equipo', 'error');
@@ -130,9 +155,15 @@ const TournamentAdminPanel = () => {
     const handleEditTeam = (t) => {
         setEditingTeamId(t.id);
         setNewTeam({
-            name: t.name || '', admin_username: t.admin_username || '', admin_password: '',
-            delegate_document: t.delegate_document || '', delegate_name: t.delegate_name || '',
-            delegate_email: t.delegate_email || '', registration_pin: t.registration_pin || '', slug: t.slug || ''
+            name: t.name || '',
+            delegate_document: t.delegate_document || '',
+            delegate_name: t.delegate_name || '',
+            delegate_email: t.delegate_email || '',
+            delegate_phone: t.delegate_phone || '',
+            delegate_address: t.delegate_address || '',
+            delegate_city: t.delegate_city || '',
+            registration_pin: t.registration_pin || '',
+            slug: t.slug || ''
         });
         setShowTeamForm(true);
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -416,28 +447,69 @@ const TournamentAdminPanel = () => {
                                                     type="text" className="input" required
                                                     value={newTeam.name}
                                                     onChange={(e) => setNewTeam({...newTeam, name: e.target.value})}
+                                                    placeholder="Ej: Los Leones FC"
                                                 />
                                             </div>
-                                            <div className="form-group">
-                                                <label className="label">Usuario Admin Equipo</label>
-                                                <input 
-                                                    type="text" className="input" required
-                                                    value={newTeam.admin_username}
-                                                    onChange={(e) => setNewTeam({...newTeam, admin_username: e.target.value})}
-                                                />
+
+                                            <div style={{ padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', marginBottom: '1rem' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', color: 'var(--primary)' }}>
+                                                    <UserCheck size={16} /> <h5 style={{ margin: 0 }}>Datos del Delegado</h5>
+                                                </div>
+                                                
+                                                <div className="form-group">
+                                                    <label className="label">Identificación (DNI/Cédula)</label>
+                                                    <input 
+                                                        type="text" className="input" required
+                                                        value={newTeam.delegate_document}
+                                                        onChange={(e) => setNewTeam({...newTeam, delegate_document: e.target.value})}
+                                                    />
+                                                </div>
+                                                <div className="form-group">
+                                                    <label className="label">Nombre Completo</label>
+                                                    <input 
+                                                        type="text" className="input" required
+                                                        value={newTeam.delegate_name}
+                                                        onChange={(e) => setNewTeam({...newTeam, delegate_name: e.target.value})}
+                                                    />
+                                                </div>
+                                                <div className="form-group">
+                                                    <label className="label">Teléfono de Contacto</label>
+                                                    <input 
+                                                        type="text" className="input" required
+                                                        value={newTeam.delegate_phone}
+                                                        onChange={(e) => setNewTeam({...newTeam, delegate_phone: e.target.value})}
+                                                    />
+                                                </div>
+                                                <div className="form-group">
+                                                    <label className="label">Correo Electrónico</label>
+                                                    <input 
+                                                        type="email" className="input" required
+                                                        value={newTeam.delegate_email}
+                                                        onChange={(e) => setNewTeam({...newTeam, delegate_email: e.target.value})}
+                                                        placeholder="Sera el nombre de usuario"
+                                                    />
+                                                </div>
+                                                <div className="form-group">
+                                                    <label className="label">Ciudad</label>
+                                                    <input 
+                                                        type="text" className="input" required
+                                                        value={newTeam.delegate_city}
+                                                        onChange={(e) => setNewTeam({...newTeam, delegate_city: e.target.value})}
+                                                    />
+                                                </div>
+                                                <div className="form-group">
+                                                    <label className="label">Dirección / Dirección de residencia</label>
+                                                    <input 
+                                                        type="text" className="input" required
+                                                        value={newTeam.delegate_address}
+                                                        onChange={(e) => setNewTeam({...newTeam, delegate_address: e.target.value})}
+                                                    />
+                                                </div>
                                             </div>
-                                            <div className="form-group">
-                                                <label className="label">Contraseña Admin</label>
-                                                <input 
-                                                    type="password" className="input" required={!editingTeamId}
-                                                    value={newTeam.admin_password}
-                                                    onChange={(e) => setNewTeam({...newTeam, admin_password: e.target.value})}
-                                                />
-                                            </div>
-                                            <hr style={{ margin: '1rem 0', opacity: 0.1 }} />
+
                                             <div className="form-group">
                                                 <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-                                                    {editingTeamId ? 'Guardar Cambios' : 'Crear Equipo'}
+                                                    {editingTeamId ? 'Guardar Cambios' : 'Registrar Equipo y Generar Acceso'}
                                                 </button>
                                                 {editingTeamId && (
                                                     <button type="button" className="btn btn-secondary" onClick={handleCancelEditTeam} style={{ width: '100%', marginTop: '0.5rem' }}>
@@ -1054,6 +1126,54 @@ const TournamentAdminPanel = () => {
                         <TournamentPhases />
                     )}
                     {/* Modal de Jugadores */}
+                    {/* Modal: Credenciales Generadas */}
+                    {showCredentialsModal && generatedCredentials && (
+                        <div className="modal-overlay">
+                            <div className="modal-content glass animate-fade-in" style={{ maxWidth: '400px', textAlign: 'center' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
+                                    <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(56, 189, 248, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <UserCheck size={32} color="var(--primary)" />
+                                    </div>
+                                    <h2 style={{ margin: 0 }}>¡Equipo Creado!</h2>
+                                    <p style={{ opacity: 0.8, fontSize: '0.9rem' }}>Entrega estas credenciales al delegado para que pueda gestionar su equipo.</p>
+                                </div>
+                                
+                                <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1.5rem', borderRadius: '12px', textAlign: 'left', marginBottom: '2rem', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                    <div style={{ marginBottom: '1rem' }}>
+                                        <label style={{ fontSize: '0.75rem', opacity: 0.5, textTransform: 'uppercase', letterSpacing: '1px' }}>Nombre de Usuario</label>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.25rem' }}>
+                                            <code style={{ fontSize: '1.1rem', color: 'var(--primary)' }}>{generatedCredentials.username}</code>
+                                            <button 
+                                                onClick={() => { navigator.clipboard.writeText(generatedCredentials.username); showNotification('Usuario copiado', 'success'); }}
+                                                className="btn" style={{ padding: '0.4rem' }}
+                                                type="button"
+                                            >
+                                                <Copy size={16} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.75rem', opacity: 0.5, textTransform: 'uppercase', letterSpacing: '1px' }}>Contraseña Temporal</label>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.25rem' }}>
+                                            <code style={{ fontSize: '1.1rem', color: '#fbbf24' }}>{generatedCredentials.password}</code>
+                                            <button 
+                                                onClick={() => { navigator.clipboard.writeText(generatedCredentials.password); showNotification('Contraseña copiada', 'success'); }}
+                                                className="btn" style={{ padding: '0.4rem' }}
+                                                type="button"
+                                            >
+                                                <Copy size={16} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => setShowCredentialsModal(false)} type="button">
+                                    Entendido, cerrar
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     {showPlayersModal && (
                         <div className="modal-overlay" onClick={() => setShowPlayersModal(false)}>
                             <div className="glass modal-content animate-scale-up" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px', width: '90%' }}>
