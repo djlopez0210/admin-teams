@@ -4,6 +4,7 @@ import { Plus, Trash2, Trophy, Users, FileText, Settings, UserCheck, LogOut, Che
 import { tournamentService, refereeService, adminService, settingsService, api } from '../services/api';
 import { useNotification } from '../context/NotificationContext';
 import TournamentPhases from './TournamentPhases';
+import TournamentWizard from '../components/TournamentWizard';
 
 const TournamentAdminPanel = () => {
     const navigate = useNavigate();
@@ -384,6 +385,9 @@ const TournamentAdminPanel = () => {
                     </button>
                     <button className={`nav-item ${activeTab === 'posiciones' ? 'active' : ''}`} onClick={() => setActiveTab('posiciones')} title="Tabla de Posiciones">
                         <Trophy size={20} style={{ color: 'var(--primary)' }} /> {!isSidebarCollapsed && <span>Posiciones</span>}
+                    </button>
+                    <button className={`nav-item ${activeTab === 'wizard' ? 'active' : ''}`} onClick={() => setActiveTab('wizard')} title="Asistente de Formato">
+                        <Trophy size={20} color="#fbbf24" /> {!isSidebarCollapsed && <span>Asistente de Formato</span>}
                     </button>
                     <button className={`nav-item ${activeTab === 'phases' ? 'active' : ''}`} onClick={() => setActiveTab('phases')} title="Fases y Grupos">
                         <Network size={20} style={{ color: 'var(--primary)' }} /> {!isSidebarCollapsed && <span>Fases y Grupos</span>}
@@ -1119,6 +1123,18 @@ const TournamentAdminPanel = () => {
                                     </div>
                                 </div>
                             </form>
+                        </div>
+                    )}
+
+                    {activeTab === 'wizard' && (
+                        <div className="animate-fade-in">
+                            <TournamentWizard 
+                                tournamentId={tournamentId} 
+                                onComplete={() => {
+                                    setActiveTab('phases');
+                                    loadData();
+                                }} 
+                            />
                         </div>
                     )}
 

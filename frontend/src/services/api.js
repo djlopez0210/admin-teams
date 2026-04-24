@@ -62,6 +62,7 @@ export const tournamentService = {
     addMatchEvent: (matchId, data) => api.post(`/matches/${matchId}/events`, data),
     assignVeedor: (matchId, veedorId) => api.post(`/matches/${matchId}/assign-veedor`, { veedor_id: veedorId }),
     lookup: (identification) => api.get(`/tournaments/lookup/${identification}`),
+    saveWizardConfig: (tournamentId, config) => api.post(`/tournaments/${tournamentId}/wizard-config`, config),
 };
 
 export const refereeService = {

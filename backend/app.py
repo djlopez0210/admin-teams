@@ -6,6 +6,7 @@ from flask_cors import CORS
 from sqlalchemy import text
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+import tournament_engine
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -73,6 +74,7 @@ with app.app_context():
             "ALTER TABLE tournaments ADD COLUMN draw_points INT DEFAULT 1",
             "ALTER TABLE tournaments ADD COLUMN loss_points INT DEFAULT 0",
             "ALTER TABLE tournaments ADD COLUMN format_type VARCHAR(50) DEFAULT 'league'",
+            "ALTER TABLE tournaments ADD COLUMN config JSON",
             # Referees
             "ALTER TABLE referees ADD COLUMN tournament_id INT",
             "ALTER TABLE referees ADD COLUMN age INT",
@@ -798,6 +800,80 @@ def get_tournament_stats(slug):
     
     # Standings are already calculated in get_tournament_phases, but let's provide a summary
     # Scorers, Fairplay, etc. will need data from match_events table (to be implemented)
+    return jsonify({"message": "Stats summarized"}), 200
+
+# --- TOURNAMENT WIZARD ---
+
+@app.route('/api/tournaments/<int:t_id>/wizard-config', methods=['POST'])
+def save_wizard_config(t_id):
+    data = request.json
+    try:
+        # 1. Update tournament config JSON
+        import json
+        db.session.execute(
+            text("UPDATE tournaments SET config = :config WHERE id = :tid"),
+            {"config": json.dumps(data), "tid": t_id}
+        )
+        
+        # 2. Dynamic Phase Generation
+        # Advancement Mode Logic
+        if data.get("advancement_mode") == "multi_cup":
+            for cup in data.get("cups", []):
+                # Check if phase already exists
+                exists = db.session.execute(
+                    text("SELECT id FROM tournament_phases WHERE tournament_id = :tid AND name = :name"),
+                    {"tid": t_id, "name": cup["name"]}
+                ).fetchone()
+                
+                if not exists:
+                    # Create Knockout Phase for this cup
+                    res = db.session.execute(
+                        text("INSERT INTO tournament_phases (tournament_id, name, phase_order, phase_type) VALUES (:tid, :name, 2, 'KNOCKOUT')"),
+                        {"tid": t_id, "name": cup["name"]}
+                    )
+                    phase_id = res.lastrowid
+                    
+                    # Create a default group for this knockout phase
+                    db.session.execute(
+                        text("INSERT INTO tournament_groups (phase_id, name) VALUES (:pid, 'Llave Principal')"),
+                        {"pid": phase_id}
+                    )
+        
+        elif data.get("advancement_mode") == "single_knockout":
+            name = "Fase Final"
+            exists = db.session.execute(
+                text("SELECT id FROM tournament_phases WHERE tournament_id = :tid AND name = :name"),
+                {"tid": t_id, "name": name}
+            ).fetchone()
+            
+            if not exists:
+                res = db.session.execute(
+                    text("INSERT INTO tournament_phases (tournament_id, name, phase_order, phase_type) VALUES (:tid, :name, 2, 'KNOCKOUT')"),
+                    {"tid": t_id, "name": name}
+                )
+                phase_id = res.lastrowid
+                db.session.execute(
+                    text("INSERT INTO tournament_groups (phase_id, name) VALUES (:pid, 'Llave Única')"),
+                    {"pid": phase_id}
+                )
+        
+        db.session.commit()
+        return jsonify({"message": "Torneo configurado y llaves generadas", "status": "success"}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"WIZARD ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/tournaments/<int:t_id>/advance', methods=['POST'])
+def run_tournament_advance(t_id):
+    # This endpoint would trigger the actual team advancement logic
+    # using tournament_engine.advance_teams(...)
+    
+    # 1. Get current standings (to have the source teams)
+    # 2. Get config from DB
+    # 3. Call enhancement
+    # 4. Create groups/teams in the new phases
+    return jsonify({"message": "Advancement processed"}), 200
     # For now, let's return a structured placeholder
     return jsonify({
         "standings": [], # Derived from group_teams
