@@ -57,8 +57,21 @@ const TournamentWizard = ({ onComplete, tournamentId }) => {
           reseed_each_round: false
         }
       }
-    }
+    },
+    auto_start: true
   });
+
+  // Sync qualifiers when teams/groups change
+  useEffect(() => {
+    const maxAllowed = Math.floor(config.expected_teams / (config.group_count || 1)) || 1;
+    if (config.teams_per_group_passing > maxAllowed) {
+      setConfig(prev => ({
+        ...prev,
+        teams_per_group_passing: maxAllowed,
+        qualified_count: maxAllowed * (prev.group_count || 1)
+      }));
+    }
+  }, [config.expected_teams, config.group_count]);
 
   const nextStep = () => setCurrentStep(prev => prev + 1);
   const prevStep = () => setCurrentStep(prev => prev - 1);
@@ -230,9 +243,9 @@ const TournamentWizard = ({ onComplete, tournamentId }) => {
                 <input 
                   type="range" 
                   min="1" 
-                  max="8" 
+                  max={Math.floor(config.expected_teams / (config.group_count || 1)) || 1} 
                   className="w-100"
-                  value={config.teams_per_group_passing} 
+                  value={Math.min(config.teams_per_group_passing, Math.floor(config.expected_teams / (config.group_count || 1)) || 1)} 
                   onChange={e => {
                     const val = parseInt(e.target.value);
                     setConfig({
@@ -243,11 +256,11 @@ const TournamentWizard = ({ onComplete, tournamentId }) => {
                   }}
                 />
                 <span className="font-bold text-lg" style={{ minWidth: '40px', textAlign: 'center' }}>
-                  {config.teams_per_group_passing}
+                  {Math.min(config.teams_per_group_passing, Math.floor(config.expected_teams / (config.group_count || 1)) || 1)}
                 </span>
               </div>
               <p className="small text-muted mt-0-5">
-                Total clasificados a la siguiente fase: <strong>{config.teams_per_group_passing * (config.group_count || 0)}</strong> equipos.
+                Total clasificados a la siguiente fase: <strong>{Math.min(config.teams_per_group_passing, Math.floor(config.expected_teams / (config.group_count || 1)) || 1) * (config.group_count || 0)}</strong> equipos.
               </p>
             </div>
 
@@ -351,27 +364,31 @@ const TournamentWizard = ({ onComplete, tournamentId }) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {[1, 2, 3, 4, 5, 6].map(pos => (
-                      <tr key={pos}>
-                        <td>{pos}° Lugar</td>
-                        <td>
-                          <select 
-                            className="select"
-                            value={config.rules.group_positions.find(r => r.position === pos)?.target || 'eliminated'}
-                            onChange={e => {
-                              const newRules = [...config.rules.group_positions].filter(r => r.position !== pos);
-                              if (e.target.value !== 'eliminated') {
-                                newRules.push({ position: pos, target: e.target.value });
-                              }
-                              setConfig({...config, rules: {...config.rules, group_positions: newRules}});
-                            }}
-                          >
-                            <option value="eliminated">❌ Eliminado</option>
-                            {config.cups.map(cup => <option key={cup.id} value={cup.id}>{cup.name}</option>)}
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
+                    {/* Limit positions shown to teams per group */}
+                    {Array.from({ length: Math.ceil(config.expected_teams / (config.group_count || 1)) }).map((_, i) => {
+                      const pos = i + 1;
+                      return (
+                        <tr key={pos}>
+                          <td>{pos}° Lugar</td>
+                          <td>
+                            <select 
+                              className="select"
+                              value={config.rules.group_positions.find(r => r.position === pos)?.target || 'eliminated'}
+                              onChange={e => {
+                                const newRules = [...config.rules.group_positions].filter(r => r.position !== pos);
+                                if (e.target.value !== 'eliminated') {
+                                  newRules.push({ position: pos, target: e.target.value });
+                                }
+                                setConfig({...config, rules: {...config.rules, group_positions: newRules}});
+                              }}
+                            >
+                              <option value="eliminated">❌ Eliminado</option>
+                              {config.cups.map(cup => <option key={cup.id} value={cup.id}>{cup.name}</option>)}
+                            </select>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -422,17 +439,28 @@ const TournamentWizard = ({ onComplete, tournamentId }) => {
                     ))}
                   </tbody>
                 </table>
-                <button className="btn btn-secondary mt-1 ml-2" onClick={() => {
-                  const last = config.rules.global_ranking[config.rules.global_ranking.length - 1];
-                  const nextFrom = last ? last.to + 1 : 1;
-                  setConfig({...config, rules: {...config.rules, global_ranking: [...config.rules.global_ranking, { from: nextFrom, to: nextFrom + 8, target: config.cups[0]?.id }]}});
-                }}><Plus size={14} /> Añadir Rango</button>
+                {config.rules.global_ranking.reduce((acc, r) => acc + (r.to - r.from + 1), 0) < config.expected_teams && (
+                   <button className="btn btn-secondary mt-1 ml-2" onClick={() => {
+                    const last = config.rules.global_ranking[config.rules.global_ranking.length - 1];
+                    const nextFrom = last ? last.to + 1 : 1;
+                    const nextTo = Math.min(nextFrom + 7, config.expected_teams);
+                    setConfig({...config, rules: {...config.rules, global_ranking: [...config.rules.global_ranking, { from: nextFrom, to: nextTo, target: config.cups[0]?.id }]}});
+                  }}><Plus size={14} /> Añadir Rango</button>
+                )}
               </div>
             )}
             
-            <div className="alert-info mt-3 flex items-center gap-2">
+            <div className={`mt-3 p-1 rounded flex items-center gap-2 ${
+                config.rules.global_ranking.reduce((acc, r) => acc + (r.to - r.from + 1), 0) !== config.expected_teams && config.qualification_type === 'global_ranking'
+                ? 'bg-warning-10 text-warning border-warning'
+                : 'alert-info'
+            }`}>
               <Info size={16} />
-              <p className="small">Valida que todos los equipos clasificados estén cubiertos por las reglas.</p>
+              <p className="small">
+                {config.qualification_type === 'global_ranking' 
+                  ? `Has cubierto ${config.rules.global_ranking.reduce((acc, r) => acc + (r.to - r.from + 1), 0)} de ${config.expected_teams} equipos.`
+                  : `Reglas aplicadas a las posiciones de los ${config.group_count} grupos.`}
+              </p>
             </div>
           </div>
         )}
@@ -559,7 +587,19 @@ const TournamentWizard = ({ onComplete, tournamentId }) => {
               <CheckCircle2 color="var(--success)" />
               <div>
                 <h4>¡Todo listo!</h4>
-                <p className="small text-muted">A continuación se generará la base de datos estructural para estas fases. Podrás editar detalles menores después.</p>
+                <p className="small text-muted">A continuación se generará la base de datos estructural para estas fases.</p>
+                
+                <div className="mt-2 p-1 bg-white-05 rounded">
+                    <label className="checkbox-label" style={{ cursor: 'pointer' }}>
+                        <input 
+                            type="checkbox" 
+                            checked={config.auto_start} 
+                            onChange={e => setConfig({...config, auto_start: e.target.checked})} 
+                        />
+                        <span className="font-bold">Realizar sorteo y generar partidos automáticamente</span>
+                    </label>
+                    <p className="text-xs opacity-50 ml-2">Esto distribuirá a los equipos en los grupos y creará el fixture de inmediato.</p>
+                </div>
               </div>
             </div>
           </div>

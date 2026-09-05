@@ -858,7 +858,60 @@ def save_wizard_config(t_id):
                 )
         
         db.session.commit()
-        return jsonify({"message": "Torneo configurado y llaves generadas", "status": "success"}), 200
+        
+        # 3. Handle Auto-Start (Group Drawing and Match Generation)
+        if data.get("auto_start"):
+            # Get phase 1 (usually the first one or named 'Fase de Grupos')
+            p1 = db.session.execute(
+                text("SELECT id FROM tournament_phases WHERE tournament_id = :tid ORDER BY phase_order ASC LIMIT 1"),
+                {"tid": t_id}
+            ).fetchone()
+            
+            if p1:
+                # 1. Create the groups
+                group_ids = []
+                for i in range(data.get("group_count", 1)):
+                    res = db.session.execute(
+                        text("INSERT INTO tournament_groups (phase_id, name) VALUES (:pid, :name)"),
+                        {"pid": p1[0], "name": f"Grupo {chr(65+i)}"}
+                    )
+                    group_ids.append(res.lastrowid)
+                
+                # 2. Get registered teams
+                res = db.session.execute(
+                    text("SELECT id, name FROM teams WHERE tournament_id = :tid"),
+                    {"tid": t_id}
+                )
+                teams = [{"id": row[0], "name": row[1]} for row in res.fetchall()]
+                
+                # 3. Distribute teams
+                if teams and group_ids:
+                    distribution = tournament_engine.distribute_teams_to_groups(teams, group_ids)
+                    
+                    for gid, g_teams in distribution.items():
+                        for team in g_teams:
+                            db.session.execute(
+                                text("INSERT INTO group_teams (group_id, team_id) VALUES (:gid, :tid)"),
+                                {"gid": gid, "tid": team['id']}
+                            )
+                        
+                        # 4. Generate Round Robin Matches
+                        matches = tournament_engine.generate_round_robin(gid, g_teams)
+                        for m in matches:
+                            db.session.execute(
+                                text("""
+                                    INSERT INTO matches (tournament_id, phase_id, group_id, round, home_team_id, away_team_id, status)
+                                    VALUES (:tid, :pid, :gid, :rnd, :home, :away, 'PENDING')
+                                """),
+                                {
+                                    "tid": t_id, "pid": p1[0], "gid": gid, 
+                                    "rnd": m['round'], "home": m['home_team_id'], "away": m['away_team_id']
+                                }
+                            )
+                
+                db.session.commit()
+
+        return jsonify({"message": "Torneo configurado y proceso de inicio completado", "status": "success"}), 200
     except Exception as e:
         db.session.rollback()
         print(f"WIZARD ERROR: {e}")

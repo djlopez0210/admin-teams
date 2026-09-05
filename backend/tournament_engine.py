@@ -174,3 +174,47 @@ def assign_with_constraints(teams, config):
             
     # Fallback to standard if constraints are impossible
     return seed_global_ranking(teams)
+
+def distribute_teams_to_groups(teams, group_ids):
+    """
+    Randomly distributes a list of teams into a list of group IDs.
+    """
+    random.shuffle(teams)
+    num_groups = len(group_ids)
+    distribution = {gid: [] for gid in group_ids}
+    
+    for i, team in enumerate(teams):
+        group_id = group_ids[i % num_groups]
+        distribution[group_id].append(team)
+        
+    return distribution
+
+def generate_round_robin(group_id, teams):
+    """
+    Generates a Round Robin fixture for a list of teams in a group.
+    Returns a list of match objects.
+    """
+    if len(teams) % 2 != 0:
+        teams.append(None) # Bye team placeholder
+        
+    n = len(teams)
+    matches = []
+    
+    # Standard circle method for round robin
+    for round_num in range(n - 1):
+        for i in range(n // 2):
+            t1 = teams[i]
+            t2 = teams[n - 1 - i]
+            
+            if t1 is not None and t2 is not None:
+                matches.append({
+                    "group_id": group_id,
+                    "round": round_num + 1,
+                    "home_team_id": t1['id'],
+                    "away_team_id": t2['id']
+                })
+        
+        # Rotate teams (keep the first one fixed)
+        teams = [teams[0]] + [teams[-1]] + teams[1:-1]
+        
+    return matches
