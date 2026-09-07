@@ -1,18 +1,32 @@
 import os
+import io
+import re
+import json
+import smtplib
+import threading
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.header import Header
 from datetime import datetime, timedelta
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, send_file
+import pandas as pd
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from sqlalchemy import text
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+from dotenv import load_dotenv
 import tournament_engine
+
+# Cargar .env tanto de la ruta actual como del directorio del script backend
+load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # Database Configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'mysql+pymysql://team_user:team_password@localhost/football_team')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'mysql+pymysql://team_user:team_password@localhost:3307/football_team?charset=utf8mb4')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.secret_key = os.getenv('SECRET_KEY', 'dev_secret_key_123')
 
@@ -50,6 +64,104 @@ with app.app_context():
         db.session.execute(text("CREATE TABLE IF NOT EXISTS tournament_groups (id INT AUTO_INCREMENT PRIMARY KEY, tournament_id INT, phase_id INT, name VARCHAR(100), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
         db.session.execute(text("CREATE TABLE IF NOT EXISTS group_teams (group_id INT, team_id INT, points INT DEFAULT 0, goals_for INT DEFAULT 0, goals_against INT DEFAULT 0, matches_played INT DEFAULT 0, PRIMARY KEY (group_id, team_id))"))
 
+        # Player match ratings (veedor-assigned score per player per match)
+        db.session.execute(text("CREATE TABLE IF NOT EXISTS player_match_ratings (id INT AUTO_INCREMENT PRIMARY KEY, match_id INT NOT NULL, player_id INT NOT NULL, team_id INT, rating DECIMAL(3,1), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY uniq_match_player (match_id, player_id))"))
+
+        # Global player card template (drag & drop editor)
+        db.session.execute(text("CREATE TABLE IF NOT EXISTS card_templates (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100) DEFAULT 'default', canvas_width INT DEFAULT 613, canvas_height INT DEFAULT 860, background_url TEXT, elements JSON, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
+
+        # Communities Module Tables
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS communities (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(150) NOT NULL,
+                slug VARCHAR(150) UNIQUE NOT NULL,
+                description TEXT,
+                city VARCHAR(100),
+                logo_url TEXT,
+                cover_url TEXT,
+                creator_id INT NULL,
+                is_active BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_players (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                community_id INT NOT NULL,
+                player_id INT NULL,
+                document_number VARCHAR(50) NOT NULL,
+                full_name VARCHAR(100) NOT NULL,
+                phone VARCHAR(20),
+                email VARCHAR(150),
+                position VARCHAR(50),
+                jersey_number INT NULL,
+                role VARCHAR(50) DEFAULT 'MEMBER',
+                status VARCHAR(50) DEFAULT 'ACTIVE',
+                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_community_player (community_id, document_number)
+            )
+        """))
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_polls (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                community_id INT NOT NULL,
+                question VARCHAR(255) NOT NULL,
+                description TEXT,
+                is_active BOOLEAN DEFAULT 1,
+                expires_at DATETIME NULL,
+                created_by VARCHAR(100),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_poll_options (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                poll_id INT NOT NULL,
+                option_text VARCHAR(255) NOT NULL,
+                votes_count INT DEFAULT 0
+            )
+        """))
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_poll_votes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                poll_id INT NOT NULL,
+                option_id INT NOT NULL,
+                voter_identifier VARCHAR(100) NOT NULL,
+                voter_name VARCHAR(100) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_poll_voter (poll_id, voter_identifier)
+            )
+        """))
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_matches (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                community_id INT NOT NULL,
+                title VARCHAR(150) NOT NULL,
+                match_date DATETIME,
+                location VARCHAR(255),
+                team_a_name VARCHAR(100) DEFAULT 'Equipo A',
+                team_b_name VARCHAR(100) DEFAULT 'Equipo B',
+                team_a_score INT DEFAULT 0,
+                team_b_score INT DEFAULT 0,
+                status VARCHAR(50) DEFAULT 'SCHEDULED',
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_match_roster (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                match_id INT NOT NULL,
+                community_player_id INT NOT NULL,
+                team_side VARCHAR(10) NOT NULL,
+                goals INT DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_match_player_roster (match_id, community_player_id)
+            )
+        """))
+
         # Schema Upgrades (Add missing columns safely)
         existing_columns = db.session.execute(text("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_name = 'teams' AND table_schema = (SELECT DATABASE())")).fetchall()
         column_names = [row[0] for row in existing_columns]
@@ -85,6 +197,10 @@ with app.app_context():
             "ALTER TABLE teams ADD COLUMN delegate_email VARCHAR(100)",
             "ALTER TABLE teams ADD COLUMN registration_pin VARCHAR(20)",
             "ALTER TABLE teams ADD COLUMN logo_url TEXT",
+            # Settings
+            "ALTER TABLE settings ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            # Team Costs
+            "ALTER TABLE team_costs ADD COLUMN item_name VARCHAR(255)",
             # Players
             "ALTER TABLE players MODIFY COLUMN payment_status VARCHAR(50) DEFAULT 'Pendiente'",
             "ALTER TABLE players ADD COLUMN document_type VARCHAR(50) AFTER team_id",
@@ -97,6 +213,20 @@ with app.app_context():
             "ALTER TABLE players ADD COLUMN secondary_position_id INT",
             "ALTER TABLE players ADD COLUMN payment_amount DECIMAL(10,2) DEFAULT 0",
             "ALTER TABLE players ADD COLUMN last_registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            # Player Profile (card module)
+            "ALTER TABLE players ADD COLUMN first_name VARCHAR(100)",
+            "ALTER TABLE players ADD COLUMN last_name VARCHAR(100)",
+            "ALTER TABLE players ADD COLUMN email VARCHAR(150)",
+            "ALTER TABLE players ADD COLUMN birth_date DATE",
+            "ALTER TABLE players ADD COLUMN tertiary_position_id INT",
+            "ALTER TABLE players ADD COLUMN preferred_foot VARCHAR(20)",
+            "ALTER TABLE players ADD COLUMN blood_type VARCHAR(5)",
+            "ALTER TABLE players ADD COLUMN nationality VARCHAR(100)",
+            "ALTER TABLE players ADD COLUMN photo_url TEXT",
+            "ALTER TABLE players ADD COLUMN photo_cutout_url TEXT",
+            # Users (player self-service login)
+            "ALTER TABLE users ADD COLUMN player_id INT",
+            "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT 0",
             # Matches
             "ALTER TABLE matches MODIFY COLUMN status VARCHAR(50) DEFAULT 'SCHEDULED'",
             "ALTER TABLE matches ADD COLUMN phase_id INT AFTER tournament_id",
@@ -109,6 +239,8 @@ with app.app_context():
             "ALTER TABLE group_teams ADD COLUMN goals_for INT DEFAULT 0",
             "ALTER TABLE group_teams ADD COLUMN goals_against INT DEFAULT 0",
             "ALTER TABLE group_teams ADD COLUMN matches_played INT DEFAULT 0",
+            # Shared Player Base & Community Support
+            "ALTER TABLE players MODIFY COLUMN team_id INT NULL",
         ]
 
         for q in upgrades:
@@ -117,6 +249,26 @@ with app.app_context():
                 db.session.commit()
             except Exception:
                 db.session.rollback()
+
+        # Ensure players index allows the same document in multiple teams (unique per team_id + document_number)
+        try:
+            db.session.execute(text("ALTER TABLE players DROP INDEX document_number"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+        try:
+            db.session.execute(text("ALTER TABLE players ADD UNIQUE KEY uniq_team_player (team_id, document_number)"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+        # Default card template row (the "global" template = lowest id)
+        res = db.session.execute(text("SELECT COUNT(*) FROM card_templates")).scalar()
+        if res == 0:
+            db.session.execute(text("INSERT INTO card_templates (name, elements) VALUES ('default', :els)"), {"els": json.dumps([])})
+            db.session.commit()
+            print("🎴 Default card template created")
 
         # Default Superadmin
         res = db.session.execute(text("SELECT COUNT(*) FROM users WHERE username = 'superadmin'")).scalar()
@@ -140,6 +292,11 @@ with app.app_context():
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+def sanitize_int(val):
+    if val is None or val == '': return None
+    try: return int(val)
+    except: return None
+
 # Helper function to Log Activity
 def log_activity(team_id, action, details=None):
     try:
@@ -151,13 +308,515 @@ def log_activity(team_id, action, details=None):
     except Exception as e:
         print(f"Error logging activity: {e}")
 
+def send_team_welcome_email(to_email, delegate_name, team_name, slug, admin_user, admin_pass, pin=None):
+    if not to_email or '@' not in str(to_email):
+        return
+
+    to_email = str(to_email).strip()
+    platform_name = os.getenv('PLATFORM_NAME', 'Plataforma Deportiva')
+    app_url = os.getenv('APP_URL', 'http://localhost:3000').rstrip('/')
+    admin_login_url = f"{app_url}/login"
+    registration_url = f"{app_url}/{slug}/registro"
+    
+    subject = f"⚽ ¡Bienvenido a {platform_name}! Tu equipo {team_name} fue registrado con éxito"
+    
+    pin_block_html = f"""
+    <div style="background: #f8fafc; border-left: 4px solid #00f2fe; padding: 12px 16px; margin-top: 14px; border-radius: 4px;">
+        <span style="font-size: 12px; color: #64748b; font-weight: 700; text-transform: uppercase;">PIN de Registro de Jugadores:</span>
+        <div style="font-size: 22px; font-weight: 800; color: #0f172a; letter-spacing: 3px; margin-top: 4px;">{pin}</div>
+    </div>
+    """ if pin else ""
+
+    pin_plain = f"\nPIN de Registro: {pin}" if pin else ""
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bienvenido a {platform_name}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; margin: 0; padding: 24px;">
+    <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.07); border: 1px solid #e2e8f0;">
+        <div style="background: linear-gradient(135deg, #0b1329 0%, #1e293b 100%); padding: 36px 32px; text-align: center; color: #ffffff;">
+            <div style="font-size: 40px; margin-bottom: 8px;">⚽</div>
+            <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #00f2fe; letter-spacing: -0.5px;">¡Bienvenido a {platform_name}!</h1>
+            <p style="margin: 8px 0 0 0; color: #94a3b8; font-size: 15px;">Tu equipo ha quedado correctamente registrado</p>
+        </div>
+        <div style="padding: 32px; color: #334155; line-height: 1.6; font-size: 15px;">
+            <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin-bottom: 12px;">
+                Hola {delegate_name or 'Representante'},
+            </div>
+            <p style="margin: 0 0 20px 0;">
+                ¡Nos emociona darte la bienvenida a nuestra plataforma! Tu equipo <strong style="color: #0f172a;">{team_name}</strong> ya se encuentra activado y listo para competir.
+            </p>
+
+            <!-- Card Credenciales Admin -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                <div style="font-size: 13px; font-weight: 700; text-transform: uppercase; color: #0284c7; letter-spacing: 0.5px; margin-bottom: 12px;">
+                    🔐 Tus Credenciales de Administrador de Equipo
+                </div>
+                <div style="margin-bottom: 8px;">
+                    <span style="color: #64748b; font-size: 14px;">Panel de Acceso:</span> 
+                    <a href="{admin_login_url}" style="color: #0284c7; font-weight: 600; text-decoration: none;">{admin_login_url}</a>
+                </div>
+                <div style="margin-bottom: 8px;">
+                    <span style="color: #64748b; font-size: 14px;">Usuario:</span> 
+                    <strong style="font-family: monospace; font-size: 15px; color: #0f172a; background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">{admin_user}</strong>
+                </div>
+                <div>
+                    <span style="color: #64748b; font-size: 14px;">Contraseña:</span> 
+                    <strong style="font-family: monospace; font-size: 15px; color: #0f172a; background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">{admin_pass}</strong>
+                </div>
+            </div>
+
+            <!-- Card Enlace para Jugadores -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+                <div style="font-size: 13px; font-weight: 700; text-transform: uppercase; color: #0284c7; letter-spacing: 0.5px; margin-bottom: 8px;">
+                    👥 Enlace de Inscripción para tus Jugadores
+                </div>
+                <p style="margin: 0 0 12px 0; font-size: 14px; color: #64748b;">
+                    Comparte este link oficial con los integrantes de tu equipo para que completen su registro:
+                </p>
+                <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px;">
+                    <a href="{registration_url}" style="color: #0284c7; font-weight: 600; text-decoration: none; word-break: break-all;">
+                        {registration_url}
+                    </a>
+                </div>
+                {pin_block_html}
+            </div>
+
+            <div style="text-align: center; margin: 28px 0 12px 0;">
+                <a href="{admin_login_url}" style="display: inline-block; background: #00f2fe; color: #0b1329; font-weight: 700; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 15px; box-shadow: 0 4px 12px rgba(0, 242, 254, 0.3);">
+                    Ingresar al Panel de Control
+                </a>
+            </div>
+        </div>
+        <div style="background: #f8fafc; padding: 20px 32px; text-align: center; color: #94a3b8; font-size: 13px; border-top: 1px solid #e2e8f0;">
+            Mensaje automático generado por {platform_name}.<br>
+            Si tienes dudas o inquietudes, comunícate con la organización del torneo.
+        </div>
+    </div>
+</body>
+</html>"""
+
+    plain_text = f"""¡Bienvenido a {platform_name}!
+
+Hola {delegate_name or 'Representante'},
+Tu equipo "{team_name}" ha sido correctamente registrado en nuestra plataforma.
+
+--- CREDENCIALES DE ADMINISTRACIÓN ---
+Panel de Acceso: {admin_login_url}
+Usuario: {admin_user}
+Contraseña: {admin_pass}
+
+--- LINK DE INSCRIPCIÓN PARA JUGADORES ---
+Comparte este enlace con tus jugadores:
+{registration_url}{pin_plain}
+
+¡Muchos éxitos!
+{platform_name}
+"""
+
+    smtp_host = os.getenv('SMTP_HOST', '').strip()
+    smtp_port = int(os.getenv('SMTP_PORT', '587'))
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip().replace(' ', '')
+    smtp_use_tls = os.getenv('SMTP_USE_TLS', 'true').lower() in ('true', '1', 'yes')
+    from_email = os.getenv('SMTP_FROM_EMAIL', smtp_user or 'noreply@plataformadeportiva.com').strip()
+    from_name = os.getenv('SMTP_FROM_NAME', platform_name).strip()
+
+    # If no SMTP configured, print log in server console
+    if not smtp_host:
+        print("\n" + "="*62)
+        print("📬 [SIMULACIÓN ENVÍO DE CORREO] Equipo Registrado")
+        print(f"Para: {to_email} ({delegate_name or 'Representante'})")
+        print(f"Asunto: {subject}")
+        print(f"Equipo: {team_name} | Slug: {slug}")
+        print(f"Usuario Admin: {admin_user} | Contraseña: {admin_pass}")
+        print(f"Link Registro Jugadores: {registration_url}")
+        if pin:
+            print(f"PIN: {pin}")
+        print("="*62)
+        print("💡 Para envíos reales vía internet, configura en tu archivo .env:")
+        print("   SMTP_HOST=smtp.gmail.com")
+        print("   SMTP_PORT=587")
+        print("   SMTP_USER=tu_correo@gmail.com")
+        print("   SMTP_PASS=tu_password_de_aplicacion\n")
+        return
+
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = Header(subject, 'utf-8')
+        msg['From'] = f"{from_name} <{from_email}>"
+        msg['To'] = to_email
+
+        msg.attach(MIMEText(plain_text, 'plain', 'utf-8'))
+        msg.attach(MIMEText(html_content, 'html', 'utf-8'))
+
+        if smtp_port == 465:
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15)
+        else:
+            server = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
+            if smtp_use_tls:
+                server.starttls()
+
+        if smtp_user and smtp_pass:
+            server.login(smtp_user, smtp_pass)
+
+        server.send_message(msg)
+        server.quit()
+        print(f"✅ Correo de bienvenida enviado exitosamente a {to_email}")
+    except Exception as ex:
+        print(f"⚠️ Error al enviar correo de bienvenida a {to_email}: {ex}")
+
+def send_team_welcome_email_async(to_email, delegate_name, team_name, slug, admin_user, admin_pass, pin=None):
+    try:
+        t = threading.Thread(
+            target=send_team_welcome_email,
+            args=(to_email, delegate_name, team_name, slug, admin_user, admin_pass, pin),
+            daemon=True
+        )
+        t.start()
+    except Exception as e:
+        print(f"Error starting email thread: {e}")
+
 def get_team_id_from_slug(slug):
+    if not slug:
+        return None
+    if isinstance(slug, int) or (isinstance(slug, str) and slug.isdigit()):
+        row = db.session.execute(text("SELECT id FROM teams WHERE id = :id"), {"id": int(slug)}).fetchone()
+        if row:
+            return row[0]
     result = db.session.execute(text("SELECT id FROM teams WHERE slug = :slug"), {"slug": slug}).fetchone()
     return result[0] if result else None
 
 def get_tournament_id_from_slug(slug):
     result = db.session.execute(text("SELECT id FROM tournaments WHERE slug = :slug"), {"slug": slug}).fetchone()
     return result[0] if result else None
+
+def slugify(text_val):
+    if not text_val:
+        return 'comunidad'
+    s = text_val.lower().strip()
+    s = re.sub(r'[àáâãäå]', 'a', s)
+    s = re.sub(r'[èéêë]', 'e', s)
+    s = re.sub(r'[ìíîï]', 'i', s)
+    s = re.sub(r'[òóôõö]', 'o', s)
+    s = re.sub(r'[ùúûü]', 'u', s)
+    s = re.sub(r'[ñ]', 'n', s)
+    s = re.sub(r'[^a-z0-9]+', '-', s)
+    return s.strip('-')
+
+def check_player_tournament_conflict(document_number, target_team_id):
+    """
+    Regla de Torneo: Un jugador puede pertenecer a más de un equipo en la plataforma,
+    pero NUNCA a dos equipos que compartan el mismo torneo.
+    Retorna (True, mensaje_conflicto) si hay conflicto, (False, None) si es válido.
+    """
+    if not document_number or not target_team_id:
+        return False, None
+
+    doc_str = str(document_number).split('.')[0].strip()
+    if not doc_str:
+        return False, None
+
+    target_team = db.session.execute(
+        text("SELECT tournament_id, name FROM teams WHERE id = :tid"),
+        {"tid": target_team_id}
+    ).fetchone()
+
+    if not target_team or not target_team[0]:
+        return False, None
+
+    target_tournament_id = target_team[0]
+
+    conflict_row = db.session.execute(
+        text("""
+            SELECT tm.id, tm.name as team_name, tr.name as tournament_name
+            FROM players p
+            JOIN teams tm ON p.team_id = tm.id
+            JOIN tournaments tr ON tm.tournament_id = tr.id
+            WHERE p.document_number = :doc
+              AND tm.id != :target_team_id
+              AND tm.tournament_id = :tournament_id
+            LIMIT 1
+        """),
+        {
+            "doc": doc_str,
+            "target_team_id": target_team_id,
+            "tournament_id": target_tournament_id
+        }
+    ).fetchone()
+
+    if conflict_row:
+        other_team_name = conflict_row[1]
+        tournament_name = conflict_row[2]
+        return True, (
+            f"Regla de torneo: El jugador con documento {doc_str} ya se encuentra inscrito en el equipo "
+            f"'{other_team_name}' que compite en el torneo '{tournament_name}'. "
+            f"Un jugador no puede pertenecer a dos equipos dentro del mismo torneo."
+        )
+
+    return False, None
+
+def process_player_excel_import(file_storage, target_community_id=None, target_team_id=None):
+    """
+    Lee un archivo Excel (.xlsx, .xls) o CSV y procesa la inscripción masiva de jugadores.
+    Aplica la regla de torneo si target_team_id está definido.
+    Vincula o registra en la base global compartida.
+    """
+    try:
+        filename = getattr(file_storage, 'filename', '') or ''
+        filename = filename.lower()
+        if filename.endswith('.csv'):
+            df = pd.read_csv(file_storage)
+        else:
+            df = pd.read_excel(file_storage)
+    except Exception as read_err:
+        return {"success": False, "error": f"Error al leer el archivo Excel: {str(read_err)}"}
+
+    if df.empty:
+        return {"success": False, "error": "El archivo Excel está vacío"}
+
+    col_map = {}
+    for col in df.columns:
+        norm = str(col).lower().strip()
+        norm = re.sub(r'[àáâãäå]', 'a', norm)
+        norm = re.sub(r'[èéêë]', 'e', norm)
+        norm = re.sub(r'[ìíîï]', 'i', norm)
+        norm = re.sub(r'[òóôõö]', 'o', norm)
+        norm = re.sub(r'[ùúûü]', 'u', norm)
+        norm = re.sub(r'[^a-z0-9_]+', '_', norm).strip('_')
+
+        if norm in ['documento', 'doc', 'cedula', 'identificacion', 'document_number']:
+            col_map['document_number'] = col
+        elif norm in ['nombre_completo', 'full_name', 'jugador']:
+            col_map['full_name'] = col
+        elif norm in ['nombres', 'nombre', 'first_name']:
+            col_map['first_name'] = col
+        elif norm in ['apellidos', 'apellido', 'last_name']:
+            col_map['last_name'] = col
+        elif norm in ['posicion', 'position', 'puesto']:
+            col_map['position'] = col
+        elif norm in ['telefono', 'celular', 'phone', 'tel']:
+            col_map['phone'] = col
+        elif norm in ['email', 'correo', 'correo_electronico']:
+            col_map['email'] = col
+        elif norm in ['fecha_nacimiento', 'nacimiento', 'birth_date']:
+            col_map['birth_date'] = col
+        elif norm in ['dorsal', 'numero', 'jersey_number', 'uniform_number']:
+            col_map['jersey_number'] = col
+        elif norm in ['eps', 'salud']:
+            col_map['eps'] = col
+        elif norm in ['pie_habil', 'pie', 'preferred_foot']:
+            col_map['preferred_foot'] = col
+        elif norm in ['tipo_sangre', 'sangre', 'blood_type']:
+            col_map['blood_type'] = col
+
+    has_name = ('full_name' in col_map) or ('first_name' in col_map)
+    if 'document_number' not in col_map or not has_name:
+        return {
+            "success": False,
+            "error": "El archivo debe contener al menos la columna 'documento' y las columnas de nombre ('nombres' y 'apellidos' o 'nombre_completo')."
+        }
+
+    total_rows = len(df)
+    imported = 0
+    updated = 0
+    errors = []
+
+    for idx, row in df.iterrows():
+        row_num = idx + 2
+        raw_doc = row.get(col_map['document_number'])
+        raw_name = row.get(col_map['full_name']) if 'full_name' in col_map else None
+        raw_fn = row.get(col_map['first_name']) if 'first_name' in col_map else None
+        raw_ln = row.get(col_map['last_name']) if 'last_name' in col_map else None
+
+        if pd.isna(raw_doc) or str(raw_doc).strip() == '':
+            errors.append({"row": row_num, "error": "Número de documento vacío"})
+            continue
+
+        doc_str = str(raw_doc).split('.')[0].strip()
+
+        fn_str = str(raw_fn).strip() if raw_fn is not None and not pd.isna(raw_fn) else ''
+        ln_str = str(raw_ln).strip() if raw_ln is not None and not pd.isna(raw_ln) else ''
+
+        if fn_str or ln_str:
+            name_str = f"{fn_str} {ln_str}".strip()
+        else:
+            name_str = str(raw_name).strip() if raw_name is not None and not pd.isna(raw_name) else ''
+            parts = name_str.split(' ')
+            fn_str = parts[0] if parts else ''
+            ln_str = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+        if not name_str:
+            errors.append({"row": row_num, "document": doc_str, "error": "Nombres/Apellidos vacíos"})
+            continue
+
+        pos_str = str(row.get(col_map.get('position', ''))).strip() if col_map.get('position') and not pd.isna(row.get(col_map['position'])) else None
+        phone_str = str(row.get(col_map.get('phone', ''))).split('.')[0].strip() if col_map.get('phone') and not pd.isna(row.get(col_map['phone'])) else None
+        email_str = str(row.get(col_map.get('email', ''))).strip() if col_map.get('email') and not pd.isna(row.get(col_map['email'])) else None
+        raw_jersey = row.get(col_map.get('jersey_number', '')) if col_map.get('jersey_number') else None
+        jersey_num = sanitize_int(raw_jersey) if raw_jersey is not None and not pd.isna(raw_jersey) else None
+        eps_str = str(row.get(col_map.get('eps', ''))).strip() if col_map.get('eps') and not pd.isna(row.get(col_map['eps'])) else None
+        foot_str = str(row.get(col_map.get('preferred_foot', ''))).strip() if col_map.get('preferred_foot') and not pd.isna(row.get(col_map['preferred_foot'])) else None
+        blood_str = str(row.get(col_map.get('blood_type', ''))).strip() if col_map.get('blood_type') and not pd.isna(row.get(col_map['blood_type'])) else None
+
+        raw_birth = row.get(col_map.get('birth_date', '')) if col_map.get('birth_date') else None
+        birth_val = None
+        if raw_birth is not None and not pd.isna(raw_birth):
+            try:
+                if isinstance(raw_birth, (datetime, pd.Timestamp)):
+                    birth_val = raw_birth.strftime('%Y-%m-%d')
+                else:
+                    birth_val = pd.to_datetime(str(raw_birth)).strftime('%Y-%m-%d')
+            except Exception:
+                birth_val = None
+
+        if target_team_id:
+            conflict, conflict_msg = check_player_tournament_conflict(doc_str, target_team_id)
+            if conflict:
+                errors.append({
+                    "row": row_num,
+                    "document": doc_str,
+                    "name": name_str,
+                    "error": conflict_msg
+                })
+                continue
+
+            try:
+                exist_team = db.session.execute(
+                    text("SELECT id FROM players WHERE team_id = :team AND document_number = :doc"),
+                    {"team": target_team_id, "doc": doc_str}
+                ).fetchone()
+
+                if exist_team:
+                    db.session.execute(
+                        text("""
+                            UPDATE players SET full_name = :name, first_name = :fn, last_name = :ln,
+                                   phone = COALESCE(:phone, phone),
+                                   email = COALESCE(:email, email), eps = COALESCE(:eps, eps),
+                                   position = COALESCE(:pos, position), uniform_number = COALESCE(:unif, uniform_number),
+                                   birth_date = COALESCE(:birth, birth_date), preferred_foot = COALESCE(:foot, preferred_foot),
+                                   blood_type = COALESCE(:blood, blood_type)
+                            WHERE id = :id
+                        """),
+                        {
+                            "name": name_str, "fn": fn_str, "ln": ln_str, "phone": phone_str, "email": email_str, "eps": eps_str,
+                            "pos": pos_str, "unif": jersey_num, "birth": birth_val, "foot": foot_str,
+                            "blood": blood_str, "id": exist_team[0]
+                        }
+                    )
+                    updated += 1
+                else:
+                    global_p = db.session.execute(
+                        text("SELECT photo_url, photo_cutout_url FROM players WHERE document_number = :doc AND photo_url IS NOT NULL LIMIT 1"),
+                        {"doc": doc_str}
+                    ).fetchone()
+                    photo_url = global_p[0] if global_p else None
+                    cutout_url = global_p[1] if global_p else None
+
+                    db.session.execute(
+                        text("""
+                            INSERT INTO players (team_id, document_number, full_name, first_name, last_name, phone, email, eps,
+                                                position, uniform_number, birth_date, preferred_foot, blood_type,
+                                                photo_url, photo_cutout_url)
+                            VALUES (:team, :doc, :name, :fn, :ln, :phone, :email, :eps, :pos, :unif, :birth, :foot, :blood, :photo, :cutout)
+                        """),
+                        {
+                            "team": target_team_id, "doc": doc_str, "name": name_str, "fn": fn_str, "ln": ln_str, "phone": phone_str,
+                            "email": email_str, "eps": eps_str, "pos": pos_str, "unif": jersey_num,
+                            "birth": birth_val, "foot": foot_str, "blood": blood_str,
+                            "photo": photo_url, "cutout": cutout_url
+                        }
+                    )
+                    imported += 1
+            except Exception as e:
+                errors.append({"row": row_num, "document": doc_str, "name": name_str, "error": str(e)})
+
+        elif target_community_id:
+            try:
+                global_p = db.session.execute(
+                    text("SELECT id FROM players WHERE document_number = :doc LIMIT 1"),
+                    {"doc": doc_str}
+                ).fetchone()
+
+                player_id = None
+                if global_p:
+                    player_id = global_p[0]
+                    db.session.execute(
+                        text("""
+                            UPDATE players SET full_name = :name, first_name = :fn, last_name = :ln,
+                                   phone = COALESCE(:phone, phone), email = COALESCE(:email, email),
+                                   eps = COALESCE(:eps, eps), position = COALESCE(:pos, position),
+                                   birth_date = COALESCE(:birth, birth_date),
+                                   preferred_foot = COALESCE(:foot, preferred_foot),
+                                   blood_type = COALESCE(:blood, blood_type)
+                            WHERE id = :id
+                        """),
+                        {
+                            "name": name_str, "fn": fn_str, "ln": ln_str, "phone": phone_str, "email": email_str, "eps": eps_str,
+                            "pos": pos_str, "birth": birth_val, "foot": foot_str, "blood": blood_str,
+                            "id": player_id
+                        }
+                    )
+                else:
+                    res_p = db.session.execute(
+                        text("""
+                            INSERT INTO players (document_number, full_name, first_name, last_name, phone, email, eps,
+                                                position, birth_date, preferred_foot, blood_type)
+                            VALUES (:doc, :name, :fn, :ln, :phone, :email, :eps, :pos, :birth, :foot, :blood)
+                        """),
+                        {
+                            "doc": doc_str, "name": name_str, "fn": fn_str, "ln": ln_str, "phone": phone_str, "email": email_str,
+                            "eps": eps_str, "pos": pos_str, "birth": birth_val, "foot": foot_str,
+                            "blood": blood_str
+                        }
+                    )
+                    player_id = res_p.lastrowid
+
+                exist_comm = db.session.execute(
+                    text("SELECT id FROM community_players WHERE community_id = :comm AND document_number = :doc"),
+                    {"comm": target_community_id, "doc": doc_str}
+                ).fetchone()
+
+                if exist_comm:
+                    db.session.execute(
+                        text("""
+                            UPDATE community_players SET full_name = :name, phone = :phone,
+                                   email = :email, position = :pos, jersey_number = :jersey, player_id = :pid
+                            WHERE id = :id
+                        """),
+                        {
+                            "name": name_str, "phone": phone_str, "email": email_str,
+                            "pos": pos_str, "jersey": jersey_num, "pid": player_id, "id": exist_comm[0]
+                        }
+                    )
+                    updated += 1
+                else:
+                    db.session.execute(
+                        text("""
+                            INSERT INTO community_players (community_id, player_id, document_number, full_name, phone, email, position, jersey_number)
+                            VALUES (:comm, :pid, :doc, :name, :phone, :email, :pos, :jersey)
+                        """),
+                        {
+                            "comm": target_community_id, "pid": player_id, "doc": doc_str, "name": name_str,
+                            "phone": phone_str, "email": email_str, "pos": pos_str, "jersey": jersey_num
+                        }
+                    )
+                    imported += 1
+            except Exception as e:
+                errors.append({"row": row_num, "document": doc_str, "name": name_str, "error": str(e)})
+
+    db.session.commit()
+    return {
+        "success": True,
+        "total": total_rows,
+        "imported": imported,
+        "updated": updated,
+        "errors": errors
+    }
 
 # Routes
 
@@ -172,6 +831,7 @@ def health_check():
 # --- POSITIONS ---
 
 @app.route('/api/<string:team_slug>/positions', methods=['GET'])
+@app.route('/api/teams/<string:team_slug>/positions', methods=['GET'])
 def get_positions(team_slug):
     team_id = get_team_id_from_slug(team_slug)
     if not team_id: return jsonify({"error": "Team not found"}), 404
@@ -240,6 +900,7 @@ def update_position(pos_id):
 # --- UNIFORM NUMBERS ---
 
 @app.route('/api/<string:team_slug>/uniform-numbers/available', methods=['GET'])
+@app.route('/api/teams/<string:team_slug>/uniform-numbers/available', methods=['GET'])
 def get_available_numbers(team_slug):
     team_id = get_team_id_from_slug(team_slug)
     if not team_id: return jsonify({"error": "Team not found"}), 404
@@ -258,30 +919,91 @@ def get_all_numbers():
 # --- PLAYERS ---
 
 @app.route('/api/<string:team_slug>/players/check-document', methods=['POST'])
+@app.route('/api/teams/<string:team_slug>/players/check-document', methods=['POST'])
 def check_document(team_slug):
     team_id = get_team_id_from_slug(team_slug)
     if not team_id: return jsonify({"error": "Team not found"}), 404
-    data = request.json
+    data = request.json or {}
     doc_number = data.get('document_number')
     if not doc_number:
         return jsonify({"error": "Document number is required"}), 400
-    
+
+    doc_str = str(doc_number).split('.')[0].strip()
+
+    # 1. Regla de Torneo: Validar si ya está en otro equipo del mismo torneo
+    conflict, conflict_msg = check_player_tournament_conflict(doc_str, team_id)
+    if conflict:
+        return jsonify({
+            "status": "bloqueado_torneo",
+            "message": conflict_msg
+        }), 200
+
+    # 2. Comprobar si ya está registrado en este mismo equipo
     result = db.session.execute(
         text("SELECT last_registration_date FROM players WHERE team_id = :team AND document_number = :doc"),
-        {"team": team_id, "doc": doc_number}
+        {"team": team_id, "doc": doc_str}
     ).fetchone()
-    
+
     if not result:
+        # Buscar en la base global compartida si existe el jugador
+        global_p = db.session.execute(
+            text("""
+                SELECT document_type, full_name, first_name, last_name, phone, email,
+                       address, neighborhood, eps, birth_date, preferred_foot, blood_type,
+                       nationality, photo_url, photo_cutout_url, position, primary_position_id
+                FROM players
+                WHERE document_number = :doc
+                ORDER BY (photo_url IS NOT NULL) DESC, created_at DESC
+                LIMIT 1
+            """),
+            {"doc": doc_str}
+        ).fetchone()
+
+        if global_p:
+            fn = global_p[2] or ''
+            ln = global_p[3] or ''
+            full = global_p[1] or ''
+            if not fn and not ln and full:
+                parts = full.strip().split(' ')
+                fn = parts[0]
+                ln = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+            player_dict = {
+                "document_number": doc_str,
+                "document_type": global_p[0] or 'Cédula de Ciudadanía',
+                "full_name": full or (f"{fn} {ln}".strip()),
+                "first_name": fn,
+                "last_name": ln,
+                "phone": global_p[4] or '',
+                "email": global_p[5] or '',
+                "address": global_p[6] or '',
+                "neighborhood": global_p[7] or '',
+                "eps": global_p[8] or '',
+                "birth_date": global_p[9].strftime('%Y-%m-%d') if global_p[9] else '',
+                "preferred_foot": global_p[10] or '',
+                "blood_type": global_p[11] or '',
+                "nationality": global_p[12] or '',
+                "photo_url": global_p[13] or '',
+                "photo_cutout_url": global_p[14] or '',
+                "position": global_p[15] or '',
+                "primary_position_id": global_p[16]
+            }
+            return jsonify({
+                "status": "disponible_global",
+                "message": "Jugador encontrado en la base de datos. Datos cargados automáticamente.",
+                "player_data": player_dict
+            }), 200
+
         return jsonify({"status": "disponible", "message": "Documento no registrado"}), 200
-    
+
     last_reg = result[0]
     days_passed = (datetime.now() - last_reg).days
-    
+
     if days_passed < 15:
         return jsonify({
             "status": "bloqueado",
             "days_remaining": 15 - days_passed,
-            "message": f"Este documento ya está registrado. Podrá registrarse nuevamente en {15 - days_passed} días"
+            "message": f"Este documento ya está registrado en este equipo. Podrá registrarse nuevamente en {15 - days_passed} días"
         }), 200
     else:
         return jsonify({
@@ -290,6 +1012,7 @@ def check_document(team_slug):
         }), 200
 
 @app.route('/api/<string:team_slug>/players', methods=['POST'])
+@app.route('/api/teams/<string:team_slug>/players', methods=['POST'])
 def register_player(team_slug):
     team_id = get_team_id_from_slug(team_slug)
     if not team_id: return jsonify({"error": "Team not found"}), 404
@@ -298,42 +1021,56 @@ def register_player(team_slug):
         doc_num = data.get('document_number')
         if not doc_num:
             return jsonify({"error": "Número de documento es requerido"}), 400
-        
-        # 0. Sanitize and Extract
-        def sanitize_int(val):
-            if val is None or val == '': return None
-            try: return int(val)
-            except: return None
 
-        full_name = data.get('full_name') or 'Sin nombre'
+        doc_str = str(doc_num).split('.')[0].strip()
+
+        # Validar Regla de Torneo
+        conflict, conflict_msg = check_player_tournament_conflict(doc_str, team_id)
+        if conflict:
+            return jsonify({"error": conflict_msg}), 400
+
+        # 0. Sanitize and Extract
+        first_name = data.get('first_name')
+        last_name = data.get('last_name')
+        full_name = data.get('full_name')
+
+        if (first_name or last_name):
+            full_name = f"{(first_name or '').strip()} {(last_name or '').strip()}".strip()
+        elif full_name:
+            parts = full_name.strip().split(' ')
+            first_name = parts[0]
+            last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+        else:
+            full_name = 'Sin nombre'
+            first_name = 'Sin nombre'
+            last_name = ''
+
         doc_type = data.get('document_type') or 'Otro'
         unif_size = data.get('uniform_size') or 'M'
-        
+
         primary_pos_id = sanitize_int(data.get('primary_position_id'))
         secondary_pos_id = sanitize_int(data.get('secondary_position_id'))
         uniform_num = sanitize_int(data.get('uniform_number'))
-        
-        # Default payment fields for public registration
+
         payment_status = 'Pendiente'
         payment_amount = 0.0
 
         if not uniform_num or not primary_pos_id:
             return jsonify({"error": "Número de uniforme y posición principal son requeridos"}), 400
 
-        # 1. Check existing
+        # 1. Check existing in this team
         sql_check = "SELECT id, last_registration_date, uniform_number FROM players WHERE team_id = :team AND document_number = :doc"
-        existing_row = db.session.execute(text(sql_check), {"team": team_id, "doc": doc_num}).fetchone()
-        
+        existing_row = db.session.execute(text(sql_check), {"team": team_id, "doc": doc_str}).fetchone()
+
         if existing_row:
             player_id = existing_row[0]
             last_reg = existing_row[1]
             old_uniform = existing_row[2]
-            
+
             if (datetime.now() - last_reg).days < 15:
                 days_left = 15 - (datetime.now() - last_reg).days
                 return jsonify({"error": f"Bloqueado. Podrá registrarse en {days_left} días"}), 400
-            
-            # History logic
+
             curr_row = db.session.execute(text("SELECT * FROM players WHERE id = :id"), {"id": player_id}).fetchone()
             if curr_row:
                 db.session.execute(
@@ -346,43 +1083,64 @@ def register_player(team_slug):
                         "p2": curr_row[12], "ps": curr_row[13], "pa": curr_row[14], "reg": curr_row[15]
                     }
                 )
-            
+
             if uniform_num != old_uniform:
                 db.session.execute(text("UPDATE uniform_numbers SET is_available = TRUE WHERE team_id = :team AND number = :n"), {"team": team_id, "n": old_uniform})
 
-            # Update
             db.session.execute(
                 text("""UPDATE players SET 
-                     document_type = :type, full_name = :name, address = :addr, neighborhood = :barrio,
+                     document_type = :type, full_name = :name, first_name = :fn, last_name = :ln,
+                     address = :addr, neighborhood = :barrio,
                      phone = :phone, eps = :eps, uniform_size = :size, uniform_number = :unif,
                      primary_position_id = :p1, secondary_position_id = :p2, 
                      last_registration_date = CURRENT_TIMESTAMP
                      WHERE id = :id AND team_id = :team"""),
                 {
-                    "type": doc_type, "name": full_name, "addr": data.get('address'), "barrio": data.get('neighborhood'),
+                    "type": doc_type, "name": full_name, "fn": first_name, "ln": last_name,
+                    "addr": data.get('address'), "barrio": data.get('neighborhood'),
                     "phone": data.get('phone'), "eps": data.get('eps'), "size": unif_size, 
                     "unif": uniform_num, "p1": primary_pos_id, "p2": secondary_pos_id,
                     "id": player_id, "team": team_id
                 }
             )
         else:
-            # New
-            db.session.execute(
-                text("""INSERT INTO players 
-                     (team_id, document_type, document_number, full_name, address, neighborhood, phone, eps, uniform_size, uniform_number, primary_position_id, secondary_position_id, payment_status, payment_amount)
-                     VALUES (:team, :type, :doc, :name, :addr, :barrio, :phone, :eps, :size, :unif, :p1, :p2, :ps, :pa)"""),
+            # Buscar en la base global si existe para heredar fotos y atributos del jugador
+            global_p = db.session.execute(
+                text("SELECT photo_url, photo_cutout_url, first_name, last_name, email, birth_date, preferred_foot, blood_type, nationality FROM players WHERE document_number = :doc AND photo_url IS NOT NULL LIMIT 1"),
+                {"doc": doc_str}
+            ).fetchone()
+
+            photo_url = data.get('photo_url') or (global_p[0] if global_p else None)
+            cutout_url = data.get('photo_cutout_url') or (global_p[1] if global_p else None)
+            first_name = first_name or (global_p[2] if global_p else None)
+            last_name = last_name or (global_p[3] if global_p else None)
+            email = data.get('email') or (global_p[4] if global_p else None)
+            birth_date = data.get('birth_date') or (global_p[5].strftime('%Y-%m-%d') if global_p and global_p[5] else None)
+            foot = data.get('preferred_foot') or (global_p[6] if global_p else None)
+            blood = data.get('blood_type') or (global_p[7] if global_p else None)
+            nat = data.get('nationality') or (global_p[8] if global_p else None)
+
+            res = db.session.execute(
+                text("""INSERT INTO players
+                     (team_id, document_type, document_number, full_name, address, neighborhood, phone, eps, uniform_size, uniform_number, primary_position_id, secondary_position_id, payment_status, payment_amount,
+                      first_name, last_name, email, birth_date, preferred_foot, blood_type, nationality, photo_url, photo_cutout_url)
+                     VALUES (:team, :type, :doc, :name, :addr, :barrio, :phone, :eps, :size, :unif, :p1, :p2, :ps, :pa,
+                             :fn, :ln, :em, :bd, :ft, :bt, :nat, :ph, :co)"""),
                 {
-                    "team": team_id, "type": doc_type, "doc": doc_num, "name": full_name, "addr": data.get('address'), "barrio": data.get('neighborhood'),
-                    "phone": data.get('phone'), "eps": data.get('eps'), "size": unif_size, 
+                    "team": team_id, "type": doc_type, "doc": doc_str, "name": full_name, "addr": data.get('address'), "barrio": data.get('neighborhood'),
+                    "phone": data.get('phone'), "eps": data.get('eps'), "size": unif_size,
                     "unif": uniform_num, "p1": primary_pos_id, "p2": secondary_pos_id,
-                    "ps": payment_status, "pa": payment_amount
+                    "ps": payment_status, "pa": payment_amount,
+                    "fn": first_name, "ln": last_name, "em": email, "bd": birth_date, "ft": foot, "bt": blood,
+                    "nat": nat, "ph": photo_url, "co": cutout_url
                 }
             )
-        
+            player_id = res.lastrowid
+
         db.session.execute(text("UPDATE uniform_numbers SET is_available = FALSE WHERE team_id = :team AND number = :n"), {"team": team_id, "n": uniform_num})
         db.session.commit()
-        log_activity(team_id, "REGISTER_PLAYER", f"Player {full_name} registered (Doc: {doc_num})")
-        return jsonify({"message": "Player registered successfully"}), 201
+        log_activity(team_id, "REGISTER_PLAYER", f"Player {full_name} registered (Doc: {doc_str})")
+        return jsonify({"message": "Player registered successfully", "player_id": player_id}), 201
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
@@ -434,25 +1192,64 @@ def update_player(p_id):
             db.session.execute(text("UPDATE uniform_numbers SET is_available = TRUE WHERE team_id = :team AND number = :n"), {"team": team_id, "n": old_uniform})
             db.session.execute(text("UPDATE uniform_numbers SET is_available = FALSE WHERE team_id = :team AND number = :n"), {"team": team_id, "n": new_uniform})
 
+        # Full profile fields (Parte A): first/last name drive full_name when provided
+        first_name = data.get('first_name')
+        last_name = data.get('last_name')
+        if first_name or last_name:
+            full_name = f"{(first_name or '').strip()} {(last_name or '').strip()}".strip()
+        else:
+            full_name = data.get('full_name')
+
         # Update player data
         db.session.execute(
-            text("""UPDATE players SET 
-                 document_type = :type, document_number = :doc, full_name = :name, 
+            text("""UPDATE players SET
+                 document_type = :type, document_number = :doc, full_name = :name,
                  phone = :phone, eps = :eps, uniform_size = :size, uniform_number = :unif,
-                 primary_position_id = :p1, secondary_position_id = :p2
+                 primary_position_id = :p1, secondary_position_id = :p2,
+                 first_name = :first_name, last_name = :last_name, email = :email,
+                 address = :address, birth_date = :birth_date, tertiary_position_id = :p3,
+                 preferred_foot = :preferred_foot, blood_type = :blood_type, nationality = :nationality
                  WHERE id = :id AND team_id = :team"""),
             {
                 "type": data.get('document_type'), "doc": data.get('document_number'),
-                "name": data.get('full_name'), "phone": data.get('phone'),
+                "name": full_name, "phone": data.get('phone'),
                 "eps": data.get('eps'), "size": data.get('uniform_size'),
                 "unif": new_uniform, "p1": sanitize_int(data.get('primary_position_id')),
                 "p2": sanitize_int(data.get('secondary_position_id')),
+                "first_name": first_name, "last_name": last_name, "email": data.get('email'),
+                "address": data.get('address'), "birth_date": data.get('birth_date') or None,
+                "p3": sanitize_int(data.get('tertiary_position_id')),
+                "preferred_foot": data.get('preferred_foot'), "blood_type": data.get('blood_type'),
+                "nationality": data.get('nationality'),
                 "id": p_id, "team": team_id
             }
         )
-        
+
         db.session.commit()
         log_activity(team_id, "EDIT_PLAYER", f"Information updated for player: {curr[2]} (ID: {p_id})")
+
+        # Provision player self-service login (Parte F.2) — idempotent upsert, isolated
+        # from the profile save above: username (document_number) is only guaranteed
+        # unique per-team, while users.username is globally unique, so a rare cross-team
+        # document collision must not roll back the player edit that already succeeded.
+        doc_number = data.get('document_number')
+        if doc_number:
+            try:
+                existing_user = db.session.execute(text("SELECT id FROM users WHERE player_id = :pid"), {"pid": p_id}).fetchone()
+                if not existing_user:
+                    hp = generate_password_hash(doc_number)
+                    db.session.execute(
+                        text("""INSERT INTO users (username, password_hash, role, team_id, player_id, must_change_password)
+                             VALUES (:u, :hp, 'player', :team, :pid, 1)"""),
+                        {"u": doc_number, "hp": hp, "team": team_id, "pid": p_id}
+                    )
+                else:
+                    db.session.execute(text("UPDATE users SET username = :u WHERE player_id = :pid"), {"u": doc_number, "pid": p_id})
+                db.session.commit()
+            except Exception as prov_err:
+                db.session.rollback()
+                print(f"⚠️ Could not provision player login for player {p_id}: {prov_err}")
+
         return jsonify({"message": "Player updated successfully"})
         
     except Exception as e:
@@ -489,6 +1286,66 @@ def get_player_history(p_id):
     columns = result.keys()
     history = [dict(zip(columns, row)) for row in result]
     return jsonify(history)
+
+CARD_DATA_SQL = """
+    SELECT p.*,
+       pos1.name as primary_position_name, pos2.name as secondary_position_name, pos3.name as tertiary_position_name,
+       t.name as team_name, t.logo_url as team_logo,
+       (SELECT COUNT(DISTINCT ml.match_id) FROM match_lineups ml WHERE ml.player_id = p.id) as matches_played,
+       (SELECT COUNT(*) FROM match_events me WHERE me.player_id = p.id AND me.event_type = 'GOAL') as goals_total,
+       (SELECT COUNT(*) FROM match_events me WHERE me.player_id = p.id AND me.event_type = 'YELLOW_CARD') as yellow_cards,
+       (SELECT COUNT(*) FROM match_events me WHERE me.player_id = p.id AND me.event_type = 'RED_CARD') as red_cards,
+       (SELECT AVG(rating) FROM player_match_ratings pmr WHERE pmr.player_id = p.id) as avg_rating
+    FROM players p
+    LEFT JOIN positions pos1 ON p.primary_position_id = pos1.id
+    LEFT JOIN positions pos2 ON p.secondary_position_id = pos2.id
+    LEFT JOIN positions pos3 ON p.tertiary_position_id = pos3.id
+    LEFT JOIN teams t ON p.team_id = t.id
+"""
+
+def row_to_card_data(row, columns):
+    r = dict(zip(columns, row))
+    avg_rating = r.get('avg_rating')
+    return {
+        "id": r.get('id'),
+        "full_name": r.get('full_name'), "first_name": r.get('first_name'), "last_name": r.get('last_name'),
+        "uniform_number": r.get('uniform_number'), "document_number": r.get('document_number'),
+        "phone": r.get('phone'), "email": r.get('email'), "address": r.get('address'),
+        "birth_date": r.get('birth_date').isoformat() if r.get('birth_date') else None,
+        "primary_position_name": r.get('primary_position_name'),
+        "secondary_position_name": r.get('secondary_position_name'),
+        "tertiary_position_name": r.get('tertiary_position_name'),
+        "preferred_foot": r.get('preferred_foot'), "blood_type": r.get('blood_type'),
+        "eps": r.get('eps'), "nationality": r.get('nationality'),
+        "team_name": r.get('team_name'), "team_logo": r.get('team_logo'),
+        "photo": r.get('photo_url'), "photo_cutout": r.get('photo_cutout_url') or r.get('photo_url'),
+        "matches_played": r.get('matches_played') or 0,
+        "goals_total": r.get('goals_total') or 0,
+        "yellow_cards": r.get('yellow_cards') or 0,
+        "red_cards": r.get('red_cards') or 0,
+        "avg_rating": round(float(avg_rating), 1) if avg_rating is not None else None,
+    }
+
+@app.route('/api/players/<int:p_id>/card-data', methods=['GET'])
+def get_player_card_data(p_id):
+    team_id = request.headers.get('X-Team-ID')
+    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+
+    result = db.session.execute(text(CARD_DATA_SQL + " WHERE p.id = :id AND p.team_id = :team"), {"id": p_id, "team": team_id})
+    row = result.fetchone()
+    if not row:
+        return jsonify({"error": "Player not found"}), 404
+    return jsonify(row_to_card_data(row, result.keys()))
+
+@app.route('/api/teams/<int:team_id>/players/card-data', methods=['GET'])
+def get_team_card_data(team_id):
+    header_team = request.headers.get('X-Team-ID')
+    if not header_team or str(header_team) != str(team_id):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    result = db.session.execute(text(CARD_DATA_SQL + " WHERE p.team_id = :team ORDER BY p.uniform_number ASC"), {"team": team_id})
+    columns = result.keys()
+    return jsonify([row_to_card_data(row, columns) for row in result.fetchall()])
 
 @app.route('/api/players/<int:p_id>/payment', methods=['PATCH'])
 def update_payment(p_id):
@@ -1207,6 +2064,38 @@ def handle_match_events(match_id):
 
         db.session.commit()
         return jsonify({"message": "Event recorded", "minute": minute}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/matches/<int:match_id>/ratings', methods=['GET', 'POST'])
+def handle_match_ratings(match_id):
+    if request.method == 'GET':
+        result = db.session.execute(
+            text("SELECT player_id, team_id, rating FROM player_match_ratings WHERE match_id = :mid"),
+            {"mid": match_id}
+        ).fetchall()
+        return jsonify([{"player_id": r[0], "team_id": r[1], "rating": float(r[2]) if r[2] is not None else None} for r in result])
+
+    # POST — bulk upsert
+    data = request.json or {}
+    ratings = data.get('ratings', [])
+    try:
+        for r in ratings:
+            player_id = sanitize_int(r.get('player_id'))
+            team_id = sanitize_int(r.get('team_id'))
+            rating = r.get('rating')
+            if not player_id or rating in (None, ''):
+                continue
+            db.session.execute(
+                text("""INSERT INTO player_match_ratings (match_id, player_id, team_id, rating)
+                     VALUES (:mid, :pid, :tid, :rating)
+                     ON DUPLICATE KEY UPDATE rating = VALUES(rating), team_id = VALUES(team_id)"""),
+                {"mid": match_id, "pid": player_id, "tid": team_id, "rating": rating}
+            )
+        db.session.commit()
+        return jsonify({"message": "Ratings saved"}), 201
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
@@ -2091,6 +2980,39 @@ def generate_phase_draw(phase_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/card-template', methods=['GET'])
+def get_card_template():
+    row = db.session.execute(text("SELECT id, name, canvas_width, canvas_height, background_url, elements FROM card_templates ORDER BY id ASC LIMIT 1")).fetchone()
+    if not row:
+        return jsonify({"error": "No template found"}), 404
+    elements = row[5]
+    elements = json.loads(elements) if isinstance(elements, str) else (elements or [])
+    return jsonify({
+        "id": row[0], "name": row[1], "canvas_width": row[2], "canvas_height": row[3],
+        "background_url": row[4], "elements": elements
+    })
+
+@app.route('/api/card-template', methods=['PUT'])
+def update_card_template():
+    data = request.json or {}
+    try:
+        db.session.execute(
+            text("""UPDATE card_templates SET
+                 elements = :els, canvas_width = :w, canvas_height = :h, background_url = :bg
+                 WHERE id = (SELECT id FROM (SELECT MIN(id) as id FROM card_templates) t)"""),
+            {
+                "els": json.dumps(data.get('elements', [])),
+                "w": data.get('canvas_width', 613),
+                "h": data.get('canvas_height', 860),
+                "bg": data.get('background_url')
+            }
+        )
+        db.session.commit()
+        return jsonify({"message": "Template saved"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/settings', methods=['GET'])
 def get_settings():
     team_id = request.headers.get('X-Team-ID')
@@ -2148,6 +3070,7 @@ def get_public_costs(team_slug):
     return jsonify(costs)
 
 @app.route('/api/<string:team_slug>/eps', methods=['GET'])
+@app.route('/api/teams/<string:team_slug>/eps', methods=['GET'])
 def get_eps_list(team_slug):
     team_id = get_team_id_from_slug(team_slug)
     if not team_id: return jsonify({"error": "Team not found"}), 404
@@ -2216,6 +3139,79 @@ def upload_logo():
 @app.route('/api/uploads/<filename>')
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+def _process_player_photo(p_id, team_id, file):
+    """Guarda el original y el recorte (rembg) de la foto de un jugador. Devuelve (response_dict, status_code)."""
+    if 'file' not in request.files:
+        return {"error": "No file part"}, 400
+    if file.filename == '' or not allowed_file(file.filename):
+        return {"error": "File type not allowed"}, 400
+
+    ts = int(datetime.now().timestamp())
+    orig_filename = f"player_{p_id}_{ts}_orig.png"
+    cutout_filename = f"player_{p_id}_{ts}_cutout.png"
+
+    from PIL import Image
+    import io
+    image_bytes = file.read()
+    try:
+        original_img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+    except Exception:
+        return {"error": "Archivo de imagen inválido"}, 400
+    original_img.save(os.path.join(app.config['UPLOAD_FOLDER'], orig_filename), format='PNG')
+    photo_url = f"/api/uploads/{orig_filename}"
+
+    photo_cutout_url = None
+    try:
+        from rembg import remove
+        cutout_bytes = remove(image_bytes)
+        with open(os.path.join(app.config['UPLOAD_FOLDER'], cutout_filename), 'wb') as f:
+            f.write(cutout_bytes)
+        photo_cutout_url = f"/api/uploads/{cutout_filename}"
+    except Exception as e:
+        print(f"⚠️ Background removal failed for player {p_id}: {e}")
+
+    db.session.execute(
+        text("UPDATE players SET photo_url = :orig, photo_cutout_url = :cutout WHERE id = :id AND team_id = :team"),
+        {"orig": photo_url, "cutout": photo_cutout_url, "id": p_id, "team": team_id}
+    )
+    db.session.commit()
+    log_activity(team_id, "UPLOAD_PHOTO", f"Photo uploaded for player ID: {p_id}")
+
+    if photo_cutout_url is None:
+        return {
+            "photo_url": photo_url, "photo_cutout_url": None,
+            "warning": "La foto se guardó, pero no se pudo quitar el fondo automáticamente."
+        }, 200
+    return {"photo_url": photo_url, "photo_cutout_url": photo_cutout_url}, 200
+
+@app.route('/api/players/<int:p_id>/photo', methods=['POST'])
+def upload_player_photo(p_id):
+    player = db.session.execute(text("SELECT team_id FROM players WHERE id = :id"), {"id": p_id}).fetchone()
+    if not player:
+        return jsonify({"error": "Player not found"}), 404
+
+    player_team_id = player[0]
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    body, status = _process_player_photo(p_id, player_team_id, request.files['file'])
+    return jsonify(body), status
+
+@app.route('/api/<string:team_slug>/players/<int:p_id>/photo', methods=['POST'])
+def upload_player_photo_public(p_id, team_slug):
+    """Subida de foto durante el auto-registro público (sin sesión de admin) — se valida
+    pertenencia por team_slug + p_id, igual que el resto del registro público."""
+    team_id = get_team_id_from_slug(team_slug)
+    if not team_id: return jsonify({"error": "Team not found"}), 404
+
+    player = db.session.execute(text("SELECT team_id FROM players WHERE id = :id"), {"id": p_id}).fetchone()
+    if not player or str(player[0]) != str(team_id):
+        return jsonify({"error": "Player not found or unauthorized"}), 404
+
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    body, status = _process_player_photo(p_id, team_id, request.files['file'])
+    return jsonify(body), status
 
 # --- HELPER FUNCTIONS ---
 
@@ -2336,17 +3332,17 @@ def login():
 
         # Query user, team, and tournament with LEFT JOINs
         sql = """
-            SELECT u.id, u.password_hash, u.team_id, t.slug as team_slug, u.role, u.username, u.tournament_id, tr.slug as tournament_slug
-            FROM users u 
-            LEFT JOIN teams t ON u.team_id = t.id 
+            SELECT u.id, u.password_hash, u.team_id, t.slug as team_slug, u.role, u.username, u.tournament_id, tr.slug as tournament_slug, u.player_id, u.must_change_password
+            FROM users u
+            LEFT JOIN teams t ON u.team_id = t.id
             LEFT JOIN tournaments tr ON u.tournament_id = tr.id
             WHERE u.username = :user
         """
         result = db.session.execute(text(sql), {"user": username}).fetchone()
-        
+
         if not result:
             return jsonify({"error": "Invalid credentials"}), 401
-            
+
         user_id = result[0]
         stored_hash = result[1]
         team_id = result[2]
@@ -2355,6 +3351,8 @@ def login():
         db_username = result[5]
         user_tournament_id = result[6]
         tournament_slug = result[7]
+        player_id = result[8]
+        must_change_password = bool(result[9])
 
         # Case 1: Match with Hash
         is_correct = check_password_hash(stored_hash, password)
@@ -2378,7 +3376,9 @@ def login():
                 "team_slug": team_slug,
                 "tournament_id": user_tournament_id,
                 "tournament_slug": tournament_slug,
-                "username": db_username
+                "username": db_username,
+                "player_id": player_id,
+                "must_change_password": must_change_password
             }), 200
 
         print(f"Login failed: Incorrect password for {username}")
@@ -2386,6 +3386,48 @@ def login():
     except Exception as e:
         print(f"CRITICAL LOGIN ERROR: {e}")
         return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/api/me/player', methods=['GET'])
+def get_my_player_profile():
+    user_id = request.headers.get('X-User-ID')
+    if not user_id: return jsonify({"error": "Unauthorized"}), 401
+
+    user = db.session.execute(text("SELECT role, player_id, team_id FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    if not user or user[0] != 'player' or not user[1]:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    result = db.session.execute(text(CARD_DATA_SQL + " WHERE p.id = :id AND p.team_id = :team"), {"id": user[1], "team": user[2]})
+    row = result.fetchone()
+    if not row:
+        return jsonify({"error": "Player not found"}), 404
+    return jsonify(row_to_card_data(row, result.keys()))
+
+@app.route('/api/me/password', methods=['PUT'])
+def change_my_password():
+    user_id = request.headers.get('X-User-ID')
+    if not user_id: return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.json or {}
+    current_password = data.get('current_password')
+    new_password = data.get('new_password')
+    if not current_password or not new_password:
+        return jsonify({"error": "current_password y new_password son requeridos"}), 400
+
+    user = db.session.execute(text("SELECT password_hash FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    if not user or not check_password_hash(user[0], current_password):
+        return jsonify({"error": "Contraseña actual incorrecta"}), 401
+
+    try:
+        new_hash = generate_password_hash(new_password)
+        db.session.execute(
+            text("UPDATE users SET password_hash = :h, must_change_password = 0 WHERE id = :id"),
+            {"h": new_hash, "id": user_id}
+        )
+        db.session.commit()
+        return jsonify({"message": "Contraseña actualizada"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 # --- SUPER ADMIN TEAM MANAGEMENT ---
 
@@ -2423,13 +3465,16 @@ def create_team():
         if not all([name, slug, del_email]):
             return jsonify({"error": "Nombre del equipo y Email son obligatorios"}), 400
             
-        # Automatic User Generation
+        # User Credentials Generation
         import secrets
         import string
-        admin_user = del_email
-        # Generate random password
-        alphabet = string.ascii_letters + string.digits
-        admin_pass = ''.join(secrets.choice(alphabet) for i in range(8))
+        admin_user = (data.get('admin_username') or '').strip() or del_email
+        provided_pass = (data.get('admin_password') or '').strip()
+        if provided_pass:
+            admin_pass = provided_pass
+        else:
+            alphabet = string.ascii_letters + string.digits
+            admin_pass = ''.join(secrets.choice(alphabet) for i in range(8))
             
         # Check if registration is open (only if tournament is selected)
         if t_id:
@@ -2460,16 +3505,6 @@ def create_team():
             {"tid": team_id, "user": admin_user, "hash": pass_hash}
         )
 
-        # ... (settings initialization stays same)
-        return jsonify({
-            "message": "Equipo creado exitosamente", 
-            "team_id": team_id,
-            "credentials": {
-                "username": admin_user,
-                "password": admin_pass
-            }
-        }), 201
-        
         # 3. Initialize Settings (optional failure)
         try:
             db.session.execute(
@@ -2505,23 +3540,30 @@ def create_team():
             print(f"Warning: Could not init uniforms for team {team_id}: {ue}")
 
         db.session.commit()
-        return jsonify({"message": "Team created successfully", "id": team_id}), 201
+
+        # Send welcome email to team delegate
+        if del_email:
+            send_team_welcome_email_async(
+                to_email=del_email,
+                delegate_name=del_name or name,
+                team_name=name,
+                slug=slug,
+                admin_user=admin_user,
+                admin_pass=admin_pass,
+                pin=reg_pin
+            )
+
+        return jsonify({
+            "message": "Equipo creado exitosamente",
+            "team_id": team_id,
+            "credentials": {
+                "username": admin_user,
+                "password": admin_pass
+            }
+        }), 201
     except Exception as e:
         db.session.rollback()
         print(f"CRITICAL ERROR CREATING TEAM: {e}")
-        return jsonify({"error": str(e)}), 500
-            
-        # 5. Initialize Uniform Numbers (0-100)
-        for i in range(0, 101):
-            db.session.execute(
-                text("INSERT INTO uniform_numbers (team_id, number) VALUES (:tid, :n)"),
-                {"tid": team_id, "n": i}
-            )
-            
-        db.session.commit()
-        return jsonify({"message": f"Team {name} created successfully with admin {admin_user}", "team_id": team_id}), 201
-    except Exception as e:
-        db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/teams/<int:team_id>', methods=['PUT'])
@@ -2602,6 +3644,971 @@ def get_logs():
     columns = result.keys()
     logs = [dict(zip(columns, row)) for row in result]
     return jsonify(logs)
+
+# --- COMMUNITIES & SHARED PLAYERS MODULE ---
+
+@app.route('/api/excel-template/players', methods=['GET'])
+def download_player_excel_template():
+    try:
+        sample_data = [
+            {
+                "documento": "1020304050",
+                "nombres": "Carlos Alberto",
+                "apellidos": "Valderrama Palacio",
+                "posicion": "Mediocampista",
+                "telefono": "3001234567",
+                "email": "pibe@example.com",
+                "fecha_nacimiento": "1995-09-02",
+                "dorsal": 10,
+                "eps": "Sura",
+                "pie_habil": "Derecho",
+                "tipo_sangre": "O+"
+            },
+            {
+                "documento": "1098765432",
+                "nombres": "Faustino",
+                "apellidos": "Asprilla Hinestroza",
+                "posicion": "Delantero",
+                "telefono": "3109876543",
+                "email": "tino@example.com",
+                "fecha_nacimiento": "1997-11-10",
+                "dorsal": 11,
+                "eps": "Sanitas",
+                "pie_habil": "Derecho",
+                "tipo_sangre": "A+"
+            }
+        ]
+        df = pd.DataFrame(sample_data)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Jugadores')
+        output.seek(0)
+        return send_file(
+            output,
+            download_name='plantilla_jugadores.xlsx',
+            as_attachment=True,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/players/global-search', methods=['GET'])
+def global_players_search():
+    try:
+        q = request.args.get('q', '').strip()
+        limit = sanitize_int(request.args.get('limit')) or 30
+
+        sql = """
+            SELECT p.document_number,
+                   MAX(p.full_name) as full_name,
+                   MAX(p.first_name) as first_name,
+                   MAX(p.last_name) as last_name,
+                   MAX(p.phone) as phone,
+                   MAX(p.email) as email,
+                   MAX(p.position) as position,
+                   MAX(p.preferred_foot) as preferred_foot,
+                   MAX(p.photo_url) as photo_url,
+                   MAX(p.photo_cutout_url) as photo_cutout_url
+            FROM players p
+            WHERE (:q = '' OR p.document_number LIKE :like_q OR p.full_name LIKE :like_q)
+            GROUP BY p.document_number
+            ORDER BY MAX(p.created_at) DESC
+            LIMIT :limit
+        """
+        rows = db.session.execute(text(sql), {"q": q, "like_q": f"%{q}%", "limit": limit}).fetchall()
+
+        players_list = []
+        for r in rows:
+            doc = r[0]
+            teams_res = db.session.execute(
+                text("""
+                    SELECT tm.id as team_id, tm.name as team_name, tr.id as tournament_id, tr.name as tournament_name
+                    FROM players pl
+                    JOIN teams tm ON pl.team_id = tm.id
+                    LEFT JOIN tournaments tr ON tm.tournament_id = tr.id
+                    WHERE pl.document_number = :doc
+                """),
+                {"doc": doc}
+            ).fetchall()
+
+            teams_info = [{
+                "team_id": t[0],
+                "team_name": t[1],
+                "tournament_id": t[2],
+                "tournament_name": t[3]
+            } for t in teams_res]
+
+            players_list.append({
+                "document_number": doc,
+                "full_name": r[1],
+                "first_name": r[2],
+                "last_name": r[3],
+                "phone": r[4],
+                "email": r[5],
+                "position": r[6],
+                "preferred_foot": r[7],
+                "photo_url": r[8],
+                "photo_cutout_url": r[9],
+                "teams": teams_info
+            })
+
+        return jsonify(players_list)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/teams/<int:team_id>/enroll-player', methods=['POST'])
+def enroll_player_in_team(team_id):
+    try:
+        data = request.json or {}
+        doc_num = data.get('document_number')
+        if not doc_num:
+            return jsonify({"error": "Document number is required"}), 400
+
+        doc_str = str(doc_num).split('.')[0].strip()
+
+        conflict, conflict_msg = check_player_tournament_conflict(doc_str, team_id)
+        if conflict:
+            return jsonify({"error": conflict_msg}), 400
+
+        curr = db.session.execute(
+            text("SELECT id FROM players WHERE team_id = :tid AND document_number = :doc"),
+            {"tid": team_id, "doc": doc_str}
+        ).fetchone()
+        if curr:
+            return jsonify({"error": "El jugador ya está inscrito en este equipo"}), 400
+
+        global_p = db.session.execute(
+            text("""
+                SELECT document_type, full_name, first_name, last_name, phone, email,
+                       address, neighborhood, eps, birth_date, preferred_foot, blood_type,
+                       nationality, photo_url, photo_cutout_url, position, primary_position_id
+                FROM players
+                WHERE document_number = :doc
+                ORDER BY (photo_url IS NOT NULL) DESC, created_at DESC
+                LIMIT 1
+            """),
+            {"doc": doc_str}
+        ).fetchone()
+
+        full_name = data.get('full_name') or (global_p[1] if global_p else 'Jugador')
+        doc_type = data.get('document_type') or (global_p[0] if global_p else 'Cédula de Ciudadanía')
+        first_name = data.get('first_name') or (global_p[2] if global_p else None)
+        last_name = data.get('last_name') or (global_p[3] if global_p else None)
+        phone = data.get('phone') or (global_p[4] if global_p else None)
+        email = data.get('email') or (global_p[5] if global_p else None)
+        address = data.get('address') or (global_p[6] if global_p else None)
+        neighborhood = data.get('neighborhood') or (global_p[7] if global_p else None)
+        eps = data.get('eps') or (global_p[8] if global_p else None)
+        birth_date = data.get('birth_date') or (global_p[9].strftime('%Y-%m-%d') if global_p and global_p[9] else None)
+        foot = data.get('preferred_foot') or (global_p[10] if global_p else None)
+        blood = data.get('blood_type') or (global_p[11] if global_p else None)
+        nationality = data.get('nationality') or (global_p[12] if global_p else None)
+        photo_url = data.get('photo_url') or (global_p[13] if global_p else None)
+        cutout_url = data.get('photo_cutout_url') or (global_p[14] if global_p else None)
+        position = data.get('position') or (global_p[15] if global_p else None)
+        primary_pos_id = sanitize_int(data.get('primary_position_id')) or (global_p[16] if global_p else None)
+        uniform_num = sanitize_int(data.get('uniform_number'))
+
+        res = db.session.execute(
+            text("""
+                INSERT INTO players (team_id, document_type, document_number, full_name, first_name, last_name,
+                                    phone, email, address, neighborhood, eps, birth_date, preferred_foot,
+                                    blood_type, nationality, photo_url, photo_cutout_url, position,
+                                    primary_position_id, uniform_number)
+                VALUES (:tid, :type, :doc, :fn, :first, :last, :phone, :email, :addr, :barrio, :eps,
+                        :bdate, :foot, :blood, :nat, :photo, :cutout, :pos, :pos_id, :unif)
+            """),
+            {
+                "tid": team_id, "type": doc_type, "doc": doc_str, "fn": full_name,
+                "first": first_name, "last": last_name, "phone": phone, "email": email,
+                "addr": address, "barrio": neighborhood, "eps": eps, "bdate": birth_date,
+                "foot": foot, "blood": blood, "nat": nationality, "photo": photo_url,
+                "cutout": cutout_url, "pos": position, "pos_id": primary_pos_id, "unif": uniform_num
+            }
+        )
+        if uniform_num:
+            db.session.execute(text("UPDATE uniform_numbers SET is_available = FALSE WHERE team_id = :team AND number = :n"), {"team": team_id, "n": uniform_num})
+
+        db.session.commit()
+        log_activity(team_id, "ENROLL_PLAYER", f"Player {full_name} enrolled from global base (Doc: {doc_str})")
+        return jsonify({"message": "Jugador inscrito exitosamente en el equipo", "player_id": res.lastrowid}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/teams/<int:team_id>/players/import-excel', methods=['POST'])
+def import_team_players_excel(team_id):
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    file = request.files['file']
+    result = process_player_excel_import(file, target_team_id=team_id)
+    if not result.get('success'):
+        return jsonify(result), 400
+    log_activity(team_id, "IMPORT_EXCEL", f"Imported {result.get('imported')} players, updated {result.get('updated')}")
+    return jsonify(result), 200
+
+def ensure_community_tables():
+    try:
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS communities (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(150) NOT NULL,
+                slug VARCHAR(150) UNIQUE NOT NULL,
+                description TEXT,
+                city VARCHAR(100),
+                logo_url TEXT,
+                cover_url TEXT,
+                creator_id INT NULL,
+                is_active BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_players (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                community_id INT NOT NULL,
+                player_id INT NULL,
+                document_number VARCHAR(50) NOT NULL,
+                full_name VARCHAR(100) NOT NULL,
+                phone VARCHAR(20),
+                email VARCHAR(150),
+                position VARCHAR(50),
+                jersey_number INT NULL,
+                role VARCHAR(50) DEFAULT 'MEMBER',
+                status VARCHAR(50) DEFAULT 'ACTIVE',
+                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_community_player (community_id, document_number)
+            )
+        """))
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_polls (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                community_id INT NOT NULL,
+                question VARCHAR(255) NOT NULL,
+                description TEXT,
+                is_active BOOLEAN DEFAULT 1,
+                expires_at DATETIME NULL,
+                created_by VARCHAR(100),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_poll_options (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                poll_id INT NOT NULL,
+                option_text VARCHAR(255) NOT NULL,
+                votes_count INT DEFAULT 0
+            )
+        """))
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_poll_votes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                poll_id INT NOT NULL,
+                option_id INT NOT NULL,
+                voter_identifier VARCHAR(100) NOT NULL,
+                voter_name VARCHAR(100) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_poll_voter (poll_id, voter_identifier)
+            )
+        """))
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_matches (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                community_id INT NOT NULL,
+                title VARCHAR(150) NOT NULL,
+                match_date DATETIME,
+                location VARCHAR(255),
+                team_a_name VARCHAR(100) DEFAULT 'Equipo A',
+                team_b_name VARCHAR(100) DEFAULT 'Equipo B',
+                team_a_score INT DEFAULT 0,
+                team_b_score INT DEFAULT 0,
+                status VARCHAR(50) DEFAULT 'SCHEDULED',
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_match_roster (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                match_id INT NOT NULL,
+                community_player_id INT NOT NULL,
+                team_side VARCHAR(10) NOT NULL,
+                goals INT DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_match_player_roster (match_id, community_player_id)
+            )
+        """))
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+
+# --- COMMUNITIES CRUD ---
+
+@app.route('/api/communities', methods=['GET'])
+def list_communities():
+    try:
+        ensure_community_tables()
+        sql = """
+            SELECT c.id, c.name, c.slug, c.description, c.city, c.logo_url, c.cover_url,
+                   c.is_active, c.created_at,
+                   (SELECT COUNT(*) FROM community_players cp WHERE cp.community_id = c.id) as total_players,
+                   (SELECT COUNT(*) FROM community_polls pol WHERE pol.community_id = c.id AND pol.is_active = 1) as active_polls,
+                   (SELECT COUNT(*) FROM community_matches m WHERE m.community_id = c.id) as total_matches
+            FROM communities c
+            ORDER BY c.created_at DESC
+        """
+        rows = db.session.execute(text(sql)).fetchall()
+        communities = []
+        for r in rows:
+            communities.append({
+                "id": r[0],
+                "name": r[1],
+                "slug": r[2],
+                "description": r[3],
+                "city": r[4],
+                "logo_url": r[5],
+                "cover_url": r[6],
+                "is_active": bool(r[7]),
+                "created_at": r[8].isoformat() if r[8] else None,
+                "total_players": r[9],
+                "active_polls": r[10],
+                "total_matches": r[11]
+            })
+        return jsonify(communities)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities', methods=['POST'])
+def create_community():
+    try:
+        ensure_community_tables()
+        data = request.json or {}
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({"error": "Nombre de la comunidad es requerido"}), 400
+
+        base_slug = slugify(name)
+        slug = base_slug
+        suffix = 1
+        while db.session.execute(text("SELECT id FROM communities WHERE slug = :s"), {"s": slug}).fetchone():
+            slug = f"{base_slug}-{suffix}"
+            suffix += 1
+
+        creator_id = request.headers.get('X-User-ID') or None
+
+        res = db.session.execute(
+            text("""
+                INSERT INTO communities (name, slug, description, city, logo_url, cover_url, creator_id)
+                VALUES (:name, :slug, :desc, :city, :logo, :cover, :creator)
+            """),
+            {
+                "name": name,
+                "slug": slug,
+                "desc": data.get('description'),
+                "city": data.get('city'),
+                "logo": data.get('logo_url'),
+                "cover": data.get('cover_url'),
+                "creator": creator_id
+            }
+        )
+        comm_id = res.lastrowid
+        db.session.commit()
+        return jsonify({"message": "Comunidad creada exitosamente", "id": comm_id, "slug": slug}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities/<int:comm_id>', methods=['GET'])
+def get_community(comm_id):
+    try:
+        sql = """
+            SELECT c.id, c.name, c.slug, c.description, c.city, c.logo_url, c.cover_url,
+                   c.is_active, c.created_at,
+                   (SELECT COUNT(*) FROM community_players cp WHERE cp.community_id = c.id) as total_players,
+                   (SELECT COUNT(*) FROM community_polls pol WHERE pol.community_id = c.id) as total_polls,
+                   (SELECT COUNT(*) FROM community_polls pol WHERE pol.community_id = c.id AND pol.is_active = 1) as active_polls,
+                   (SELECT COUNT(*) FROM community_matches m WHERE m.community_id = c.id) as total_matches
+            FROM communities c
+            WHERE c.id = :id
+        """
+        row = db.session.execute(text(sql), {"id": comm_id}).fetchone()
+        if not row:
+            return jsonify({"error": "Comunidad no encontrada"}), 404
+
+        return jsonify({
+            "id": row[0],
+            "name": row[1],
+            "slug": row[2],
+            "description": row[3],
+            "city": row[4],
+            "logo_url": row[5],
+            "cover_url": row[6],
+            "is_active": bool(row[7]),
+            "created_at": row[8].isoformat() if row[8] else None,
+            "total_players": row[9],
+            "total_polls": row[10],
+            "active_polls": row[11],
+            "total_matches": row[12]
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities/<int:comm_id>', methods=['PUT'])
+def update_community(comm_id):
+    try:
+        data = request.json or {}
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({"error": "Nombre es requerido"}), 400
+
+        db.session.execute(
+            text("""
+                UPDATE communities SET
+                    name = :name, description = :desc, city = :city,
+                    logo_url = :logo, cover_url = :cover, is_active = :active
+                WHERE id = :id
+            """),
+            {
+                "name": name,
+                "desc": data.get('description'),
+                "city": data.get('city'),
+                "logo": data.get('logo_url'),
+                "cover": data.get('cover_url'),
+                "active": 1 if data.get('is_active', True) else 0,
+                "id": comm_id
+            }
+        )
+        db.session.commit()
+        return jsonify({"message": "Comunidad actualizada exitosamente"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities/<int:comm_id>', methods=['DELETE'])
+def delete_community(comm_id):
+    try:
+        db.session.execute(text("DELETE FROM community_match_roster WHERE match_id IN (SELECT id FROM community_matches WHERE community_id = :id)"), {"id": comm_id})
+        db.session.execute(text("DELETE FROM community_matches WHERE community_id = :id"), {"id": comm_id})
+        db.session.execute(text("DELETE FROM community_poll_votes WHERE poll_id IN (SELECT id FROM community_polls WHERE community_id = :id)"), {"id": comm_id})
+        db.session.execute(text("DELETE FROM community_poll_options WHERE poll_id IN (SELECT id FROM community_polls WHERE community_id = :id)"), {"id": comm_id})
+        db.session.execute(text("DELETE FROM community_polls WHERE community_id = :id"), {"id": comm_id})
+        db.session.execute(text("DELETE FROM community_players WHERE community_id = :id"), {"id": comm_id})
+        db.session.execute(text("DELETE FROM communities WHERE id = :id"), {"id": comm_id})
+        db.session.commit()
+        return jsonify({"message": "Comunidad eliminada exitosamente"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# --- COMMUNITY PLAYERS ---
+
+@app.route('/api/communities/<int:comm_id>/players', methods=['GET'])
+def get_community_players(comm_id):
+    try:
+        sql = """
+            SELECT cp.id, cp.community_id, cp.player_id, cp.document_number,
+                   cp.full_name, cp.phone, cp.email, cp.position, cp.jersey_number,
+                   cp.role, cp.status, cp.joined_at,
+                   p.photo_url, p.photo_cutout_url, p.preferred_foot, p.birth_date
+            FROM community_players cp
+            LEFT JOIN players p ON cp.player_id = p.id OR (p.document_number = cp.document_number AND p.photo_url IS NOT NULL)
+            WHERE cp.community_id = :cid
+            ORDER BY cp.joined_at DESC
+        """
+        rows = db.session.execute(text(sql), {"cid": comm_id}).fetchall()
+        seen_cp_ids = set()
+        players = []
+        for r in rows:
+            if r[0] in seen_cp_ids:
+                continue
+            seen_cp_ids.add(r[0])
+            players.append({
+                "id": r[0],
+                "community_id": r[1],
+                "player_id": r[2],
+                "document_number": r[3],
+                "full_name": r[4],
+                "phone": r[5],
+                "email": r[6],
+                "position": r[7],
+                "jersey_number": r[8],
+                "role": r[9],
+                "status": r[10],
+                "joined_at": r[11].isoformat() if r[11] else None,
+                "photo_url": r[12],
+                "photo_cutout_url": r[13],
+                "preferred_foot": r[14],
+                "birth_date": r[15].strftime('%Y-%m-%d') if r[15] else None
+            })
+        return jsonify(players)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities/<int:comm_id>/players', methods=['POST'])
+def add_community_player(comm_id):
+    try:
+        data = request.json or {}
+        doc_num = data.get('document_number')
+        first_name = data.get('first_name')
+        last_name = data.get('last_name')
+        full_name = data.get('full_name')
+
+        if (first_name or last_name):
+            full_name = f"{(first_name or '').strip()} {(last_name or '').strip()}".strip()
+        elif full_name:
+            parts = full_name.strip().split(' ')
+            first_name = parts[0]
+            last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+        else:
+            first_name = ''
+            last_name = ''
+
+        if not doc_num or not full_name:
+            return jsonify({"error": "Documento, nombres y apellidos son requeridos"}), 400
+
+        doc_str = str(doc_num).split('.')[0].strip()
+
+        exist = db.session.execute(
+            text("SELECT id FROM community_players WHERE community_id = :cid AND document_number = :doc"),
+            {"cid": comm_id, "doc": doc_str}
+        ).fetchone()
+        if exist:
+            return jsonify({"error": "El jugador ya está inscrito en esta comunidad"}), 400
+
+        global_p = db.session.execute(
+            text("SELECT id, photo_url FROM players WHERE document_number = :doc LIMIT 1"),
+            {"doc": doc_str}
+        ).fetchone()
+
+        player_id = None
+        if global_p:
+            player_id = global_p[0]
+        else:
+            res_p = db.session.execute(
+                text("""
+                    INSERT INTO players (document_number, full_name, first_name, last_name, phone, email, position,
+                                        birth_date, preferred_foot, blood_type)
+                    VALUES (:doc, :name, :fn, :ln, :phone, :email, :pos, :bdate, :foot, :blood)
+                """),
+                {
+                    "doc": doc_str, "name": full_name, "fn": first_name, "ln": last_name, "phone": data.get('phone'),
+                    "email": data.get('email'), "pos": data.get('position'),
+                    "bdate": data.get('birth_date') or None,
+                    "foot": data.get('preferred_foot'), "blood": data.get('blood_type')
+                }
+            )
+            player_id = res_p.lastrowid
+
+        res = db.session.execute(
+            text("""
+                INSERT INTO community_players (community_id, player_id, document_number, full_name,
+                                              phone, email, position, jersey_number, role, status)
+                VALUES (:cid, :pid, :doc, :name, :phone, :email, :pos, :jersey, :role, 'ACTIVE')
+            """),
+            {
+                "cid": comm_id, "pid": player_id, "doc": doc_str, "name": full_name,
+                "phone": data.get('phone'), "email": data.get('email'),
+                "pos": data.get('position'), "jersey": sanitize_int(data.get('jersey_number')),
+                "role": data.get('role') or 'MEMBER'
+            }
+        )
+        db.session.commit()
+        return jsonify({"message": "Jugador inscrito en la comunidad", "id": res.lastrowid}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities/<int:comm_id>/players/import-excel', methods=['POST'])
+def import_community_players_excel(comm_id):
+    if 'file' not in request.files:
+        return jsonify({"error": "No se envió ningún archivo"}), 400
+    file = request.files['file']
+    result = process_player_excel_import(file, target_community_id=comm_id)
+    if not result.get('success'):
+        return jsonify(result), 400
+    return jsonify(result), 200
+
+@app.route('/api/communities/<int:comm_id>/players/<int:cp_id>', methods=['PUT'])
+def update_community_player(comm_id, cp_id):
+    try:
+        data = request.json or {}
+        db.session.execute(
+            text("""
+                UPDATE community_players SET
+                    role = COALESCE(:role, role),
+                    status = COALESCE(:status, status),
+                    jersey_number = :jersey,
+                    position = COALESCE(:pos, position)
+                WHERE id = :id AND community_id = :cid
+            """),
+            {
+                "role": data.get('role'),
+                "status": data.get('status'),
+                "jersey": sanitize_int(data.get('jersey_number')),
+                "pos": data.get('position'),
+                "id": cp_id,
+                "cid": comm_id
+            }
+        )
+        db.session.commit()
+        return jsonify({"message": "Miembro actualizado exitosamente"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities/<int:comm_id>/players/<int:cp_id>', methods=['DELETE'])
+def remove_community_player(comm_id, cp_id):
+    try:
+        db.session.execute(
+            text("DELETE FROM community_match_roster WHERE community_player_id = :id"),
+            {"id": cp_id}
+        )
+        db.session.execute(
+            text("DELETE FROM community_players WHERE id = :id AND community_id = :cid"),
+            {"id": cp_id, "cid": comm_id}
+        )
+        db.session.commit()
+        return jsonify({"message": "Jugador removido de la comunidad"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# --- COMMUNITY POLLS ---
+
+@app.route('/api/communities/<int:comm_id>/polls', methods=['GET'])
+def get_community_polls(comm_id):
+    try:
+        voter_id = request.headers.get('X-User-ID') or request.args.get('voter_id') or 'anon'
+
+        polls_res = db.session.execute(
+            text("SELECT id, question, description, is_active, expires_at, created_by, created_at FROM community_polls WHERE community_id = :cid ORDER BY created_at DESC"),
+            {"cid": comm_id}
+        ).fetchall()
+
+        polls = []
+        for p in polls_res:
+            poll_id = p[0]
+            options_res = db.session.execute(
+                text("SELECT id, option_text, votes_count FROM community_poll_options WHERE poll_id = :pid ORDER BY id ASC"),
+                {"pid": poll_id}
+            ).fetchall()
+
+            total_votes = sum(o[2] for o in options_res)
+
+            user_voted_option = db.session.execute(
+                text("SELECT option_id FROM community_poll_votes WHERE poll_id = :pid AND voter_identifier = :vid LIMIT 1"),
+                {"pid": poll_id, "vid": str(voter_id)}
+            ).fetchone()
+
+            options = []
+            for o in options_res:
+                cnt = o[2]
+                pct = round((cnt / total_votes * 100), 1) if total_votes > 0 else 0
+                options.append({
+                    "id": o[0],
+                    "option_text": o[1],
+                    "votes_count": cnt,
+                    "percentage": pct
+                })
+
+            polls.append({
+                "id": poll_id,
+                "question": p[1],
+                "description": p[2],
+                "is_active": bool(p[3]),
+                "expires_at": p[4].isoformat() if p[4] else None,
+                "created_by": p[5],
+                "created_at": p[6].isoformat() if p[6] else None,
+                "total_votes": total_votes,
+                "user_voted_option_id": user_voted_option[0] if user_voted_option else None,
+                "options": options
+            })
+
+        return jsonify(polls)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities/<int:comm_id>/polls', methods=['POST'])
+def create_community_poll(comm_id):
+    try:
+        data = request.json or {}
+        question = (data.get('question') or '').strip()
+        options = data.get('options') or []
+
+        if not question:
+            return jsonify({"error": "La pregunta de la encuesta es requerida"}), 400
+        if len(options) < 2:
+            return jsonify({"error": "Debes agregar al menos 2 opciones de respuesta"}), 400
+
+        user = request.headers.get('X-User-ID') or 'Admin'
+
+        res = db.session.execute(
+            text("""
+                INSERT INTO community_polls (community_id, question, description, expires_at, created_by)
+                VALUES (:cid, :q, :desc, :exp, :user)
+            """),
+            {
+                "cid": comm_id, "q": question, "desc": data.get('description'),
+                "exp": data.get('expires_at') or None, "user": user
+            }
+        )
+        poll_id = res.lastrowid
+
+        for opt in options:
+            opt_text = str(opt).strip()
+            if opt_text:
+                db.session.execute(
+                    text("INSERT INTO community_poll_options (poll_id, option_text) VALUES (:pid, :text)"),
+                    {"pid": poll_id, "text": opt_text}
+                )
+
+        db.session.commit()
+        return jsonify({"message": "Encuesta creada exitosamente", "id": poll_id}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities/polls/<int:poll_id>/vote', methods=['POST'])
+def vote_community_poll(poll_id):
+    try:
+        data = request.json or {}
+        option_id = data.get('option_id')
+        voter_id = data.get('voter_identifier') or request.headers.get('X-User-ID') or request.remote_addr or 'anon'
+        voter_name = data.get('voter_name') or 'Usuario'
+
+        if not option_id:
+            return jsonify({"error": "Opción no seleccionada"}), 400
+
+        poll = db.session.execute(text("SELECT is_active, expires_at FROM community_polls WHERE id = :id"), {"id": poll_id}).fetchone()
+        if not poll or not poll[0]:
+            return jsonify({"error": "Esta encuesta ya no está activa"}), 400
+        if poll[1] and datetime.now() > poll[1]:
+            return jsonify({"error": "La encuesta ya ha expirado"}), 400
+
+        existing_vote = db.session.execute(
+            text("SELECT id, option_id FROM community_poll_votes WHERE poll_id = :pid AND voter_identifier = :vid"),
+            {"pid": poll_id, "vid": str(voter_id)}
+        ).fetchone()
+
+        if existing_vote:
+            old_opt_id = existing_vote[1]
+            if old_opt_id == option_id:
+                return jsonify({"message": "Ya habías votado por esta opción"}), 200
+            db.session.execute(
+                text("UPDATE community_poll_options SET votes_count = GREATEST(0, votes_count - 1) WHERE id = :oid"),
+                {"oid": old_opt_id}
+            )
+            db.session.execute(
+                text("UPDATE community_poll_votes SET option_id = :oid WHERE id = :vid"),
+                {"oid": option_id, "vid": existing_vote[0]}
+            )
+        else:
+            db.session.execute(
+                text("""
+                    INSERT INTO community_poll_votes (poll_id, option_id, voter_identifier, voter_name)
+                    VALUES (:pid, :oid, :vid, :vname)
+                """),
+                {"pid": poll_id, "oid": option_id, "vid": str(voter_id), "vname": voter_name}
+            )
+
+        db.session.execute(
+            text("UPDATE community_poll_options SET votes_count = votes_count + 1 WHERE id = :oid"),
+            {"oid": option_id}
+        )
+        db.session.commit()
+        return jsonify({"message": "Voto registrado exitosamente"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities/polls/<int:poll_id>/toggle', methods=['PATCH'])
+def toggle_community_poll(poll_id):
+    try:
+        poll = db.session.execute(text("SELECT is_active FROM community_polls WHERE id = :id"), {"id": poll_id}).fetchone()
+        if not poll:
+            return jsonify({"error": "Encuesta no encontrada"}), 404
+        new_status = 0 if poll[0] else 1
+        db.session.execute(text("UPDATE community_polls SET is_active = :st WHERE id = :id"), {"st": new_status, "id": poll_id})
+        db.session.commit()
+        return jsonify({"message": "Estado de encuesta actualizado", "is_active": bool(new_status)}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities/polls/<int:poll_id>', methods=['DELETE'])
+def delete_community_poll(poll_id):
+    try:
+        db.session.execute(text("DELETE FROM community_poll_votes WHERE poll_id = :id"), {"id": poll_id})
+        db.session.execute(text("DELETE FROM community_poll_options WHERE poll_id = :id"), {"id": poll_id})
+        db.session.execute(text("DELETE FROM community_polls WHERE id = :id"), {"id": poll_id})
+        db.session.commit()
+        return jsonify({"message": "Encuesta eliminada exitosamente"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# --- COMMUNITY MATCHES ---
+
+@app.route('/api/communities/<int:comm_id>/matches', methods=['GET'])
+def get_community_matches(comm_id):
+    try:
+        sql = """
+            SELECT id, title, match_date, location, team_a_name, team_b_name,
+                   team_a_score, team_b_score, status, notes, created_at
+            FROM community_matches
+            WHERE community_id = :cid
+            ORDER BY match_date DESC
+        """
+        rows = db.session.execute(text(sql), {"cid": comm_id}).fetchall()
+        matches = []
+        for r in rows:
+            m_id = r[0]
+            roster_rows = db.session.execute(
+                text("""
+                    SELECT cmr.id, cmr.community_player_id, cmr.team_side, cmr.goals,
+                           cp.full_name, cp.position, cp.jersey_number
+                    FROM community_match_roster cmr
+                    JOIN community_players cp ON cmr.community_player_id = cp.id
+                    WHERE cmr.match_id = :mid
+                """),
+                {"mid": m_id}
+            ).fetchall()
+
+            team_a_players = []
+            team_b_players = []
+            for ply in roster_rows:
+                p_obj = {
+                    "roster_id": ply[0],
+                    "community_player_id": ply[1],
+                    "team_side": ply[2],
+                    "goals": ply[3],
+                    "full_name": ply[4],
+                    "position": ply[5],
+                    "jersey_number": ply[6]
+                }
+                if ply[2] == 'A':
+                    team_a_players.append(p_obj)
+                else:
+                    team_b_players.append(p_obj)
+
+            matches.append({
+                "id": m_id,
+                "title": r[1],
+                "match_date": r[2].isoformat() if r[2] else None,
+                "location": r[3],
+                "team_a_name": r[4] or 'Equipo A',
+                "team_b_name": r[5] or 'Equipo B',
+                "team_a_score": r[6],
+                "team_b_score": r[7],
+                "status": r[8] or 'SCHEDULED',
+                "notes": r[9],
+                "created_at": r[10].isoformat() if r[10] else None,
+                "team_a_players": team_a_players,
+                "team_b_players": team_b_players
+            })
+        return jsonify(matches)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities/<int:comm_id>/matches', methods=['POST'])
+def create_community_match(comm_id):
+    try:
+        data = request.json or {}
+        title = (data.get('title') or '').strip()
+        if not title:
+            return jsonify({"error": "Título del encuentro es requerido"}), 400
+
+        res = db.session.execute(
+            text("""
+                INSERT INTO community_matches (community_id, title, match_date, location,
+                                               team_a_name, team_b_name, notes, status)
+                VALUES (:cid, :title, :mdate, :loc, :ta, :tb, :notes, 'SCHEDULED')
+            """),
+            {
+                "cid": comm_id, "title": title, "mdate": data.get('match_date') or None,
+                "loc": data.get('location'), "ta": data.get('team_a_name') or 'Equipo A',
+                "tb": data.get('team_b_name') or 'Equipo B', "notes": data.get('notes')
+            }
+        )
+        match_id = res.lastrowid
+        db.session.commit()
+        return jsonify({"message": "Encuentro deportivo creado exitosamente", "id": match_id}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities/matches/<int:match_id>', methods=['PUT'])
+def update_community_match(match_id):
+    try:
+        data = request.json or {}
+        db.session.execute(
+            text("""
+                UPDATE community_matches SET
+                    title = COALESCE(:title, title),
+                    match_date = COALESCE(:mdate, match_date),
+                    location = COALESCE(:loc, location),
+                    team_a_name = COALESCE(:ta, team_a_name),
+                    team_b_name = COALESCE(:tb, team_b_name),
+                    team_a_score = :score_a,
+                    team_b_score = :score_b,
+                    status = COALESCE(:status, status),
+                    notes = COALESCE(:notes, notes)
+                WHERE id = :id
+            """),
+            {
+                "title": data.get('title'), "mdate": data.get('match_date'),
+                "loc": data.get('location'), "ta": data.get('team_a_name'),
+                "tb": data.get('team_b_name'),
+                "score_a": sanitize_int(data.get('team_a_score')) if data.get('team_a_score') is not None else 0,
+                "score_b": sanitize_int(data.get('team_b_score')) if data.get('team_b_score') is not None else 0,
+                "status": data.get('status'), "notes": data.get('notes'),
+                "id": match_id
+            }
+        )
+        db.session.commit()
+        return jsonify({"message": "Encuentro actualizado exitosamente"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities/matches/<int:match_id>/roster', methods=['POST'])
+def set_community_match_roster(match_id):
+    try:
+        data = request.json or {}
+        players = data.get('players') or []
+
+        db.session.execute(text("DELETE FROM community_match_roster WHERE match_id = :mid"), {"mid": match_id})
+
+        for p in players:
+            cpid = p.get('community_player_id')
+            side = p.get('team_side', 'A')
+            goals = sanitize_int(p.get('goals')) or 0
+            if cpid:
+                db.session.execute(
+                    text("""
+                        INSERT INTO community_match_roster (match_id, community_player_id, team_side, goals)
+                        VALUES (:mid, :cpid, :side, :goals)
+                    """),
+                    {"mid": match_id, "cpid": cpid, "side": side, "goals": goals}
+                )
+
+        db.session.commit()
+        return jsonify({"message": "Nómina del encuentro actualizada exitosamente"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/communities/matches/<int:match_id>', methods=['DELETE'])
+def delete_community_match(match_id):
+    try:
+        db.session.execute(text("DELETE FROM community_match_roster WHERE match_id = :id"), {"id": match_id})
+        db.session.execute(text("DELETE FROM community_matches WHERE id = :id"), {"id": match_id})
+        db.session.commit()
+        return jsonify({"message": "Encuentro eliminado exitosamente"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001)

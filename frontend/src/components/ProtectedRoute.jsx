@@ -1,13 +1,14 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
+import { isSessionValid, updateSessionActivity } from '../utils/session';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
-    const isAuthenticated = localStorage.getItem('adminAuthenticated') === 'true';
-    const userRole = localStorage.getItem('adminRole');
-
-    if (!isAuthenticated) {
+    if (!isSessionValid()) {
         return <Navigate to="/login" replace />;
     }
+
+    updateSessionActivity();
+    const userRole = localStorage.getItem('adminRole');
 
     if (allowedRoles && !allowedRoles.includes(userRole)) {
         // Redirect based on role or to a safe default

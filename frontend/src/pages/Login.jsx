@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, User, LogIn, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { adminService } from '../services/api';
 import { useNotification } from '../context/NotificationContext';
+import { isSessionValid, updateSessionActivity, getRoleDashboard } from '../utils/session';
 
 const Login = () => {
     const [credentials, setCredentials] = useState({ username: '', password: '' });
@@ -11,6 +12,14 @@ const Login = () => {
     const [showPassword, setShowPassword] = useState(false);
     const navigate = useNavigate();
     const { showNotification } = useNotification();
+
+    // If session is still valid, redirect straight to dashboard without asking password again
+    useEffect(() => {
+        if (isSessionValid()) {
+            const role = localStorage.getItem('adminRole');
+            navigate(getRoleDashboard(role), { replace: true });
+        }
+    }, [navigate]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -28,19 +37,14 @@ const Login = () => {
                 localStorage.setItem('adminRole', res.data.role);
                 localStorage.setItem('adminUserId', res.data.user_id || '');
                 localStorage.setItem('adminUsername', credentials.username);
-                
+                localStorage.setItem('adminPlayerId', res.data.player_id || '');
+                localStorage.setItem('mustChangePassword', res.data.must_change_password ? 'true' : 'false');
+                updateSessionActivity();
+
                 showNotification('Bienvenido, ' + credentials.username, 'success');
-                
+
                 // Redirect based on role
-                if (res.data.role === 'superadmin') {
-                    navigate('/admin');
-                } else if (res.data.role === 'tournament_admin') {
-                    navigate('/tournament-admin');
-                } else if (res.data.role === 'veedor') {
-                    navigate('/veedor');
-                } else {
-                    navigate('/players'); // Default for team admins
-                }
+                navigate(getRoleDashboard(res.data.role));
             }
         } catch (err) {
             setError('Credenciales incorrectas. Por favor, intente de nuevo.');

@@ -17,6 +17,8 @@ const VeedorPanel = () => {
     const [showEventModal, setShowEventModal] = useState(false);
     const [eventData, setEventData] = useState({ type: 'GOAL', team_id: null, player_id: '', related_player_id: '' });
     const [matchMinute, setMatchMinute] = useState(0);
+    const [ratings, setRatings] = useState({});
+    const [savingRatings, setSavingRatings] = useState(false);
 
     useEffect(() => {
         loadMatches();
@@ -49,14 +51,18 @@ const VeedorPanel = () => {
             setAwayPlayers(awayRes.data);
             
             if (match.status === 'IN_PROGRESS' || match.status === 'COMPLETED') {
-                const [lineupRes, eventsRes] = await Promise.all([
+                const [lineupRes, eventsRes, ratingsRes] = await Promise.all([
                     tournamentService.getMatchLineup(match.id),
-                    tournamentService.getMatchEvents(match.id)
+                    tournamentService.getMatchEvents(match.id),
+                    tournamentService.getMatchRatings(match.id)
                 ]);
                 console.log('Planilla recuperada:', lineupRes.data);
                 console.log('Eventos recuperados:', eventsRes.data.length);
                 setLineup(lineupRes.data || []);
                 setMatchEvents(eventsRes.data);
+                const ratingsMap = {};
+                (ratingsRes.data || []).forEach(r => { ratingsMap[r.player_id] = r.rating; });
+                setRatings(ratingsMap);
                 setScore({ home: match.home_score || 0, away: match.away_score || 0 });
                 setStep(match.status === 'IN_PROGRESS' ? 'live' : 'result');
             } else {
@@ -84,6 +90,15 @@ const VeedorPanel = () => {
         }
         return () => clearInterval(interval);
     }, [step, selectedMatch]);
+
+    const getParticipatingPlayers = (teamPlayers) => {
+        return teamPlayers.filter(p => {
+            const pId = Number(p.id);
+            const inLineup = lineup.map(id => Number(id)).includes(pId);
+            const enteredViaSub = matchEvents.some(e => e.type === 'SUBSTITUTION' && Number(e.related_player_id) === pId);
+            return inLineup || enteredViaSub;
+        });
+    };
 
     const togglePlayer = (id) => {
         setLineup(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
@@ -149,19 +164,34 @@ const VeedorPanel = () => {
     };
 
     const submitResults = async () => {
+        setSavingRatings(true);
         try {
             await api.put(`/matches/${selectedMatch.id}`, {
                 home_score: score.home,
                 away_score: score.away,
                 status: 'COMPLETED'
             });
-            // Save events (goals) logic...
+
+            const homeIds = homePlayers.map(p => Number(p.id));
+            const ratingsPayload = Object.entries(ratings)
+                .filter(([, rating]) => rating !== '' && rating !== null && rating !== undefined)
+                .map(([player_id, rating]) => ({
+                    player_id: Number(player_id),
+                    team_id: homeIds.includes(Number(player_id)) ? selectedMatch.home_id : selectedMatch.away_id,
+                    rating: Number(rating)
+                }));
+            if (ratingsPayload.length > 0) {
+                await tournamentService.saveMatchRatings(selectedMatch.id, ratingsPayload);
+            }
+
             showNotification('Resultado oficial publicado', 'success');
             setStep('list');
             setSelectedMatch(null);
             loadMatches();
         } catch (err) {
             showNotification('Error al publicar resultado', 'error');
+        } finally {
+            setSavingRatings(false);
         }
     };
 
@@ -443,8 +473,43 @@ const VeedorPanel = () => {
                         )}
                     </div>
  
-                    <button className="btn btn-primary" style={{ width: '100%', padding: '1rem', fontWeight: 800 }} onClick={submitResults}>
-                        PUBLICAR RESULTADO OFICIAL
+                    <h3>Calificar Jugadores</h3>
+                    <p style={{ fontSize: '0.8rem', opacity: 0.6, marginBottom: '1rem' }}>Asigna una puntuación (1 a 10) a cada jugador que participó. Esta nota alimenta las estadísticas de su tarjeta.</p>
+
+                    <div className="glass" style={{ padding: '1rem', marginBottom: '1rem' }}>
+                        <h4 style={{ color: 'var(--primary)', marginBottom: '1rem' }}>{selectedMatch.home}</h4>
+                        {getParticipatingPlayers(homePlayers).map(p => (
+                            <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.6rem 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                <span>#{p.uniform_number} - {p.full_name}</span>
+                                <input
+                                    type="number" min="1" max="10" step="0.1" className="input"
+                                    style={{ width: '80px', textAlign: 'center' }}
+                                    value={ratings[p.id] ?? ''}
+                                    onChange={(e) => setRatings({ ...ratings, [p.id]: e.target.value })}
+                                    placeholder="-"
+                                />
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="glass" style={{ padding: '1rem', marginBottom: '1.5rem' }}>
+                        <h4 style={{ color: 'var(--primary)', marginBottom: '1rem' }}>{selectedMatch.away}</h4>
+                        {getParticipatingPlayers(awayPlayers).map(p => (
+                            <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.6rem 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                <span>#{p.uniform_number} - {p.full_name}</span>
+                                <input
+                                    type="number" min="1" max="10" step="0.1" className="input"
+                                    style={{ width: '80px', textAlign: 'center' }}
+                                    value={ratings[p.id] ?? ''}
+                                    onChange={(e) => setRatings({ ...ratings, [p.id]: e.target.value })}
+                                    placeholder="-"
+                                />
+                            </div>
+                        ))}
+                    </div>
+
+                    <button className="btn btn-primary" style={{ width: '100%', padding: '1rem', fontWeight: 800 }} onClick={submitResults} disabled={savingRatings}>
+                        {savingRatings ? 'PUBLICANDO...' : 'PUBLICAR RESULTADO OFICIAL'}
                     </button>
                     <button className="btn btn-secondary" style={{ width: '100%', marginTop: '1rem' }} onClick={() => setStep('live')}>
                         <ChevronLeft size={16}/> Corregir Eventos

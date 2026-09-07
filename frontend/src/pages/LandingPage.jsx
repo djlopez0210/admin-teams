@@ -42,12 +42,12 @@ const LandingPage = () => {
                     <p style={{ fontSize: '1.25rem', color: 'var(--text-muted)', marginBottom: '2.5rem', maxWidth: '500px', lineHeight: 1.6 }}>
                         Una plataforma multi-equipo diseñada para simplificar el registro, las finanzas y el seguimiento de tus jugadores con tecnología de punta.
                     </p>
-                    <div style={{ display: 'flex', gap: '1.5rem' }}>
+                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                         <button className="btn btn-primary" style={{ padding: '1rem 2rem', fontSize: '1.125rem' }} onClick={() => navigate('/login')}>
                             Acceso Administrativo <ChevronRight size={20} />
                         </button>
-                        <button className="btn btn-secondary" style={{ padding: '1rem 2rem', fontSize: '1.125rem' }}>
-                            <PlayCircle size={20} /> Ver Demo
+                        <button className="btn btn-secondary" style={{ padding: '1rem 2rem', fontSize: '1.125rem' }} onClick={() => navigate('/communities')}>
+                            <Users size={20} /> Ver Comunidades
                         </button>
                     </div>
                 </div>

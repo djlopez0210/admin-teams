@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Save, XCircle, CheckCircle, Info } from 'lucide-react';
+import { Search, Save, XCircle, CheckCircle, Info, Upload, Camera } from 'lucide-react';
 import { playerService, positionService, uniformService, settingsService, costService } from '../services/api';
 import { useParams } from 'react-router-dom';
 import { useNotification } from '../context/NotificationContext';
+import CameraModal from '../components/CameraModal';
 
 const RegisterPlayer = () => {
     const { teamSlug } = useParams();
@@ -10,6 +11,8 @@ const RegisterPlayer = () => {
     const initialFormState = {
         document_type: 'Cédula de Ciudadanía',
         document_number: '',
+        first_name: '',
+        last_name: '',
         full_name: '',
         address: '',
         neighborhood: '',
@@ -35,7 +38,20 @@ const RegisterPlayer = () => {
     const [teamName, setTeamName] = useState('');
     const [teamLogo, setTeamLogo] = useState('');
     const [epsList, setEpsList] = useState([]);
-    
+    const [photoFile, setPhotoFile] = useState(null);
+    const [photoPreview, setPhotoPreview] = useState('');
+    const [uploadingPhoto, setUploadingPhoto] = useState(false);
+    const [photoWarning, setPhotoWarning] = useState('');
+    const [cutoutPreview, setCutoutPreview] = useState('');
+    const [showCameraModal, setShowCameraModal] = useState(false);
+
+    const handleCameraCapture = (file) => {
+        setPhotoFile(file);
+        setPhotoPreview(URL.createObjectURL(file));
+        setCutoutPreview('');
+        setPhotoWarning('');
+    };
+
     // PIN Validation State
     const [hasPin, setHasPin] = useState(false);
     const [pinValidated, setPinValidated] = useState(false);
@@ -94,8 +110,40 @@ const RegisterPlayer = () => {
             try {
                 const res = await playerService.checkDocument(teamSlug, val);
                 setDocStatus(res.data);
-                if (res.data.status === 'bloqueado') {
+                if (res.data.status === 'bloqueado' || res.data.status === 'bloqueado_torneo') {
                     setError(res.data.message);
+                    setSuccess('');
+                } else if (res.data.status === 'disponible_global' && res.data.player_data) {
+                    const pd = res.data.player_data;
+                    let fn = pd.first_name || '';
+                    let ln = pd.last_name || '';
+                    if (!fn && !ln && pd.full_name) {
+                        const parts = pd.full_name.trim().split(' ');
+                        fn = parts.shift() || '';
+                        ln = parts.join(' ');
+                    }
+                    const full = (fn && ln ? `${fn} ${ln}` : (pd.full_name || '')).trim();
+                    setFormData(prev => ({
+                        ...prev,
+                        first_name: fn || prev.first_name,
+                        last_name: ln || prev.last_name,
+                        full_name: full || prev.full_name,
+                        phone: pd.phone || prev.phone,
+                        email: pd.email || prev.email,
+                        address: pd.address || prev.address,
+                        neighborhood: pd.neighborhood || prev.neighborhood,
+                        eps: pd.eps || prev.eps,
+                        document_type: pd.document_type || prev.document_type,
+                        primary_position_id: pd.primary_position_id || prev.primary_position_id
+                    }));
+                    if (pd.photo_url) {
+                        setPhotoPreview(pd.photo_url);
+                    }
+                    if (pd.photo_cutout_url) {
+                        setCutoutPreview(pd.photo_cutout_url);
+                    }
+                    setError('');
+                    setSuccess(res.data.message);
                 } else {
                     setError('');
                 }
@@ -113,24 +161,62 @@ const RegisterPlayer = () => {
         setFormData({ ...formData, phone: val });
     };
 
+    const handlePhotoSelect = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setPhotoFile(file);
+        setPhotoPreview(URL.createObjectURL(file));
+        setCutoutPreview('');
+        setPhotoWarning('');
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
         setError('');
         setSuccess('');
 
-        if (docStatus?.status === 'bloqueado') {
+        if (docStatus?.status === 'bloqueado' || docStatus?.status === 'bloqueado_torneo') {
             setError(docStatus.message);
             setLoading(false);
             return;
         }
 
+        const fn = (formData.first_name || '').trim();
+        const ln = (formData.last_name || '').trim();
+        const full = fn && ln ? `${fn} ${ln}` : (formData.full_name || `${fn} ${ln}`).trim();
+        const payload = {
+            ...formData,
+            first_name: fn,
+            last_name: ln,
+            full_name: full
+        };
+
         try {
-            await playerService.register(teamSlug, formData);
+            const res = await playerService.register(teamSlug, payload);
+            const playerId = res.data.player_id;
+
+            if (photoFile && playerId) {
+                setUploadingPhoto(true);
+                try {
+                    const photoRes = await playerService.uploadPhotoPublic(teamSlug, playerId, photoFile);
+                    setCutoutPreview(photoRes.data.photo_cutout_url || '');
+                    if (photoRes.data.warning) {
+                        setPhotoWarning(photoRes.data.warning);
+                    }
+                } catch (photoErr) {
+                    showNotification('El jugador se registró, pero la foto no se pudo subir', 'error');
+                } finally {
+                    setUploadingPhoto(false);
+                }
+            }
+
             setSuccess('¡Jugador registrado exitosamente!');
             setShowModal(true);
             setFormData(initialFormState);
             setDocStatus(null);
+            setPhotoFile(null);
+            setPhotoPreview('');
             loadInitialData(); // Refresh available numbers
             window.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (err) {
@@ -148,6 +234,10 @@ const RegisterPlayer = () => {
         setDocStatus(null);
         setError('');
         setSuccess('');
+        setPhotoFile(null);
+        setPhotoPreview('');
+        setCutoutPreview('');
+        setPhotoWarning('');
     };
 
     if (hasPin && !pinValidated) {
@@ -235,13 +325,40 @@ const RegisterPlayer = () => {
                     </div>
 
                     {/* Basic Info */}
-                    <div className="form-group grid-full-width">
-                        <label className="label">Nombre Completo</label>
+                    <div className="form-group">
+                        <label className="label">Nombres</label>
                         <input 
                             type="text"
                             className="input"
-                            value={formData.full_name}
-                            onChange={(e) => setFormData({...formData, full_name: e.target.value})}
+                            placeholder="Ej: Carlos Alberto"
+                            value={formData.first_name}
+                            onChange={(e) => {
+                                const fn = e.target.value;
+                                setFormData(prev => ({
+                                    ...prev,
+                                    first_name: fn,
+                                    full_name: `${fn} ${prev.last_name || ''}`.trim()
+                                }));
+                            }}
+                            required
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <label className="label">Apellidos</label>
+                        <input 
+                            type="text"
+                            className="input"
+                            placeholder="Ej: Valderrama Palacio"
+                            value={formData.last_name}
+                            onChange={(e) => {
+                                const ln = e.target.value;
+                                setFormData(prev => ({
+                                    ...prev,
+                                    last_name: ln,
+                                    full_name: `${prev.first_name || ''} ${ln}`.trim()
+                                }));
+                            }}
                             required
                         />
                     </div>
@@ -363,15 +480,36 @@ const RegisterPlayer = () => {
                         </select>
                     </div>
 
+                    <div className="form-group grid-full-width">
+                        <label className="label">Foto (opcional, se le quita el fondo automáticamente)</label>
+                        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                            {photoPreview && (
+                                <img src={photoPreview} alt="Vista previa" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--glass-border)' }} />
+                            )}
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => setShowCameraModal(true)}
+                                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                            >
+                                <Camera size={16} /> Tomar foto
+                            </button>
+                            <label className="btn btn-secondary" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <Upload size={16} /> {photoFile ? 'Cambiar archivo' : 'Subir archivo'}
+                                <input type="file" hidden accept="image/*" onChange={handlePhotoSelect} />
+                            </label>
+                        </div>
+                    </div>
+
                 </div>
 
                 <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem' }}>
-                    <button 
-                        type="submit" 
+                    <button
+                        type="submit"
                         className="btn btn-primary"
-                        disabled={loading || docStatus?.status === 'bloqueado'}
+                        disabled={loading || uploadingPhoto || docStatus?.status === 'bloqueado'}
                     >
-                        <Save size={18} /> {loading ? 'Registrando...' : 'Registrar Jugador'}
+                        <Save size={18} /> {uploadingPhoto ? 'Quitando fondo de la foto...' : loading ? 'Registrando...' : 'Registrar Jugador'}
                     </button>
                     <button 
                         type="button" 
@@ -426,8 +564,24 @@ const RegisterPlayer = () => {
                         </div>
                         
                         <h2 style={{ marginBottom: '0.5rem' }}>¡Bienvenido a {teamName}!</h2>
-                        <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>Tu registro ha sido procesado correctamente.</p>
-                        
+                        <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>Tu registro ha sido procesado correctamente.</p>
+
+                        {cutoutPreview && (
+                            <div style={{ marginBottom: '1.5rem' }}>
+                                <img
+                                    src={cutoutPreview} alt="Foto sin fondo"
+                                    style={{
+                                        width: 100, height: 100, objectFit: 'cover', borderRadius: 12,
+                                        border: '1px solid var(--glass-border)', margin: '0 auto',
+                                        backgroundImage: 'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)',
+                                        backgroundSize: '10px 10px',
+                                        backgroundPosition: '0 0, 0 5px, 5px -5px, -5px 0px'
+                                    }}
+                                />
+                                {photoWarning && <p style={{ color: 'var(--warning)', fontSize: '0.8rem', marginTop: '0.5rem' }}>{photoWarning}</p>}
+                            </div>
+                        )}
+
                         <div style={{ 
                             textAlign: 'left', 
                             background: 'rgba(0,0,0,0.2)', 
@@ -475,6 +629,13 @@ const RegisterPlayer = () => {
                     </div>
                 </div>
             )}
+
+            {/* Camera Capture Modal */}
+            <CameraModal
+                isOpen={showCameraModal}
+                onClose={() => setShowCameraModal(false)}
+                onCapture={handleCameraCapture}
+            />
         </div>
     );
 };

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { NotificationProvider } from './context/NotificationContext'
 import { BrowserRouter as Router, Routes, Route, NavLink, Link } from 'react-router-dom'
-import { UserPlus, Settings as SettingsIcon, Trophy, Image, Calendar } from 'lucide-react'
+import { UserPlus, Settings as SettingsIcon, Trophy, Image, Calendar, Sun, Moon, Users } from 'lucide-react'
 import RegisterPlayer from './pages/RegisterPlayer'
 import PlayersList from './pages/PlayersList'
 import AdminPanel from './pages/AdminPanel'
@@ -10,12 +10,31 @@ import LandingPage from './pages/LandingPage'
 import TournamentLanding from './pages/TournamentLanding'
 import TournamentAdminPanel from './pages/TournamentAdminPanel'
 import VeedorPanel from './pages/VeedorPanel'
+import CardTemplateEditor from './pages/CardTemplateEditor'
+import PlayerProfile from './pages/PlayerProfile'
+import CommunitiesList from './pages/CommunitiesList'
+import CommunityDetail from './pages/CommunityDetail'
 import ProtectedRoute from './components/ProtectedRoute'
 import { settingsService } from './services/api'
 import { useParams, useLocation } from 'react-router-dom'
+import { initActivityTracker, clearSession, getRoleDashboard } from './utils/session'
+
+// Applied once when the app loads, before the first paint, to avoid a flash of the wrong theme.
+if (localStorage.getItem('uiTheme') === 'dark') {
+  document.body.classList.add('theme-dark');
+}
 
 function TeamLayout({ children, isPublic = true }) {
   const { teamSlug } = useParams();
+  const [isDarkTheme, setIsDarkTheme] = useState(() => document.body.classList.contains('theme-dark'));
+
+  const toggleTheme = () => {
+    const next = !isDarkTheme;
+    setIsDarkTheme(next);
+    document.body.classList.toggle('theme-dark', next);
+    localStorage.setItem('uiTheme', next ? 'dark' : 'light');
+  };
+
   const [settings, setSettings] = useState({
     team_name: 'TeamManager',
     team_logo_url: '',
@@ -89,11 +108,18 @@ function TeamLayout({ children, isPublic = true }) {
 
   const role = localStorage.getItem('adminRole');
 
+  const getLogoDestination = () => {
+    if (isPublic) {
+      return teamSlug ? `/${teamSlug}` : '/';
+    }
+    return getRoleDashboard(role);
+  };
+
   return (
     <>
       <header className="navbar glass">
         <Link 
-          to={role === 'veedor' ? '/veedor' : `/${teamSlug || ''}`} 
+          to={getLogoDestination()} 
           className="logo" 
           style={{ 
             display: 'flex', 
@@ -101,7 +127,7 @@ function TeamLayout({ children, isPublic = true }) {
             gap: '0.75rem', 
             textDecoration: 'none', 
             color: 'inherit',
-            cursor: (teamSlug || role === 'veedor') ? 'pointer' : 'default'
+            cursor: 'pointer'
           }}
         >
           {settings.team_logo_url ? (
@@ -111,6 +137,7 @@ function TeamLayout({ children, isPublic = true }) {
           )}
           <h2 style={{ margin: 0 }}>{settings.team_name}</h2>
         </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
         <nav className="nav-links">
           {isPublic ? (
             <NavLink to={`/${teamSlug}`} className="nav-link">
@@ -118,7 +145,7 @@ function TeamLayout({ children, isPublic = true }) {
             </NavLink>
           ) : (
             <>
-              {role !== 'veedor' && role !== 'tournament_admin' && (
+              {role !== 'veedor' && role !== 'tournament_admin' && role !== 'player' && (
                 <>
                   <NavLink to="/admin" className="nav-link" end>
                     <SettingsIcon size={18} inline /> Dashboard
@@ -128,9 +155,19 @@ function TeamLayout({ children, isPublic = true }) {
                   </NavLink>
                 </>
               )}
+              {role !== 'veedor' && role !== 'player' && (
+                <NavLink to="/communities" className="nav-link">
+                  <Users size={18} inline /> Comunidades
+                </NavLink>
+              )}
               {role === 'tournament_admin' && (
                 <NavLink to="/tournament-admin" className="nav-link">
                   <Trophy size={18} inline /> Torneos
+                </NavLink>
+              )}
+              {role === 'superadmin' && (
+                <NavLink to="/card-template" className="nav-link">
+                  <Image size={18} inline /> Diseño de Tarjeta
                 </NavLink>
               )}
               {role === 'veedor' && (
@@ -138,8 +175,13 @@ function TeamLayout({ children, isPublic = true }) {
                   <Calendar size={18} inline /> Partidos
                 </NavLink>
               )}
+              {role === 'player' && (
+                <NavLink to="/player" className="nav-link">
+                  <UserPlus size={18} inline /> Mi Perfil
+                </NavLink>
+              )}
               <button 
-                onClick={() => { localStorage.removeItem('adminAuthenticated'); window.location.href = '/login'; }}
+                onClick={() => { clearSession(); window.location.href = '/login'; }}
                 className="nav-link" 
                 style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--error)' }}
               >
@@ -148,6 +190,14 @@ function TeamLayout({ children, isPublic = true }) {
             </>
           )}
         </nav>
+        <button
+          onClick={toggleTheme}
+          className="theme-toggle"
+          title={isDarkTheme ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
+        >
+          {isDarkTheme ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
+        </div>
       </header>
       <main className="container animate-fade-in">
         {children}
@@ -160,6 +210,10 @@ function TeamLayout({ children, isPublic = true }) {
 }
 
 function App() {
+  useEffect(() => {
+    return initActivityTracker();
+  }, []);
+
   return (
     <NotificationProvider>
       <Router>
@@ -199,13 +253,46 @@ function App() {
               </ProtectedRoute>
             } 
           />
-          <Route 
-            path="/veedor" 
+          <Route
+            path="/veedor"
             element={
               <ProtectedRoute allowedRoles={['superadmin', 'veedor']}>
                 <TeamLayout isPublic={false}><VeedorPanel /></TeamLayout>
               </ProtectedRoute>
+            }
+          />
+          <Route 
+            path="/card-template" 
+            element={
+              <ProtectedRoute allowedRoles={['superadmin']}>
+                <TeamLayout isPublic={false}><CardTemplateEditor /></TeamLayout>
+              </ProtectedRoute>
             } 
+          />
+          {/* Communities Module (accessible with /communities and /comunidades) */}
+          <Route 
+            path="/communities" 
+            element={<TeamLayout isPublic={false}><CommunitiesList /></TeamLayout>} 
+          />
+          <Route 
+            path="/comunidades" 
+            element={<TeamLayout isPublic={false}><CommunitiesList /></TeamLayout>} 
+          />
+          <Route 
+            path="/communities/:communityId" 
+            element={<TeamLayout isPublic={false}><CommunityDetail /></TeamLayout>} 
+          />
+          <Route 
+            path="/comunidades/:communityId" 
+            element={<TeamLayout isPublic={false}><CommunityDetail /></TeamLayout>} 
+          />
+          <Route 
+            path="/player"
+            element={
+              <ProtectedRoute allowedRoles={['player']}>
+                <TeamLayout isPublic={false}><PlayerProfile /></TeamLayout>
+              </ProtectedRoute>
+            }
           />
 
           {/* Public Tournament routes */}

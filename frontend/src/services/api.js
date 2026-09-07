@@ -17,20 +17,53 @@ api.interceptors.request.use(config => {
     return config;
 });
 
+// Optional per-request team override — used by the superadmin cross-team players view,
+// where there's no adminTeamId in localStorage for the interceptor to inject.
+const teamOverride = (teamId) => teamId ? { headers: { 'X-Team-ID': teamId } } : undefined;
+
 export const playerService = {
     checkDocument: (teamSlug, docNumber) => api.post(`/${teamSlug}/players/check-document`, { document_number: docNumber }),
     register: (teamSlug, playerData) => api.post(`/${teamSlug}/players`, playerData),
-    getAll: () => api.get('/players'),
+    getAll: (teamId) => api.get('/players', teamOverride(teamId)),
     delete: (id) => api.delete(`/players/${id}`),
     getHistory: (id) => api.get(`/players/${id}/history`),
     updatePayment: (id, data) => api.patch(`/players/${id}/payment`, data),
     getEps: (teamSlug) => api.get(`/${teamSlug}/eps`),
     update: (id, data) => api.put(`/players/${id}`, data),
+    uploadPhoto: (id, file, teamId) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        return api.post(`/players/${id}/photo`, formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+                ...(teamId ? { 'X-Team-ID': teamId } : {})
+            }
+        });
+    },
+    uploadPhotoPublic: (teamSlug, playerId, file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        return api.post(`/${teamSlug}/players/${playerId}/photo`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+    },
+    getCardData: (id, teamId) => api.get(`/players/${id}/card-data`, teamOverride(teamId)),
+    getTeamCardData: (teamId) => api.get(`/teams/${teamId}/players/card-data`, teamOverride(teamId)),
+};
+
+export const cardTemplateService = {
+    get: () => api.get('/card-template'),
+    update: (data) => api.put('/card-template', data),
+};
+
+export const playerAuthService = {
+    me: () => api.get('/me/player'),
+    changePassword: (data) => api.put('/me/password', data),
 };
 
 export const positionService = {
     getAllByTeam: (teamSlug) => api.get(`/${teamSlug}/positions`),
-    getAll: () => api.get('/positions'),
+    getAll: (teamId) => api.get('/positions', teamOverride(teamId)),
     create: (data) => api.post('/positions', data),
     update: (id, data) => api.put(`/positions/${id}`, data),
     delete: (id) => api.delete(`/positions/${id}`),
@@ -38,7 +71,7 @@ export const positionService = {
 
 export const uniformService = {
     getAvailable: (teamSlug) => api.get(`/${teamSlug}/uniform-numbers/available`),
-    getAll: () => api.get('/uniform-numbers'),
+    getAll: (teamId) => api.get('/uniform-numbers', teamOverride(teamId)),
 };
 
 export const tournamentService = {
@@ -63,6 +96,8 @@ export const tournamentService = {
     assignVeedor: (matchId, veedorId) => api.post(`/matches/${matchId}/assign-veedor`, { veedor_id: veedorId }),
     lookup: (identification) => api.get(`/tournaments/lookup/${identification}`),
     saveWizardConfig: (tournamentId, config) => api.post(`/tournaments/${tournamentId}/wizard-config`, config),
+    getMatchRatings: (matchId) => api.get(`/matches/${matchId}/ratings`),
+    saveMatchRatings: (matchId, ratings) => api.post(`/matches/${matchId}/ratings`, { ratings }),
 };
 
 export const refereeService = {
@@ -101,6 +136,55 @@ export const costService = {
     create: (data) => api.post('/costs', data),
     update: (id, data) => api.put(`/costs/${id}`, data),
     delete: (id) => api.delete(`/costs/${id}`),
+};
+
+export const communityService = {
+    getAll: () => api.get('/communities'),
+    get: (id) => api.get(`/communities/${id}`),
+    create: (data) => api.post('/communities', data),
+    update: (id, data) => api.put(`/communities/${id}`, data),
+    delete: (id) => api.delete(`/communities/${id}`),
+
+    // Players
+    getPlayers: (commId) => api.get(`/communities/${commId}/players`),
+    addPlayer: (commId, data) => api.post(`/communities/${commId}/players`, data),
+    importExcel: (commId, file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        return api.post(`/communities/${commId}/players/import-excel`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+    },
+    updatePlayer: (commId, cpId, data) => api.put(`/communities/${commId}/players/${cpId}`, data),
+    removePlayer: (commId, cpId) => api.delete(`/communities/${commId}/players/${cpId}`),
+    downloadTemplate: () => api.get('/excel-template/players', { responseType: 'blob' }),
+
+    // Polls
+    getPolls: (commId) => api.get(`/communities/${commId}/polls`),
+    createPoll: (commId, data) => api.post(`/communities/${commId}/polls`, data),
+    votePoll: (pollId, data) => api.post(`/communities/polls/${pollId}/vote`, data),
+    togglePoll: (pollId) => api.patch(`/communities/polls/${pollId}/toggle`),
+    deletePoll: (pollId) => api.delete(`/communities/polls/${pollId}`),
+
+    // Matches
+    getMatches: (commId) => api.get(`/communities/${commId}/matches`),
+    createMatch: (commId, data) => api.post(`/communities/${commId}/matches`, data),
+    updateMatch: (matchId, data) => api.put(`/communities/matches/${matchId}`, data),
+    setMatchRoster: (matchId, data) => api.post(`/communities/matches/${matchId}/roster`, data),
+    deleteMatch: (matchId) => api.delete(`/communities/matches/${matchId}`),
+};
+
+export const globalPlayerService = {
+    search: (query, limit = 30) => api.get('/players/global-search', { params: { q: query, limit } }),
+    enrollInTeam: (teamId, data) => api.post(`/teams/${teamId}/enroll-player`, data),
+    importTeamExcel: (teamId, file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        return api.post(`/teams/${teamId}/players/import-excel`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+    },
+    downloadTemplate: () => api.get('/excel-template/players', { responseType: 'blob' }),
 };
 
 export default api;

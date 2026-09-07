@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, PieChart, Activity, RefreshCcw, LogOut, Edit2, Save, X, DollarSign, Palette, Settings, Users, Trophy } from 'lucide-react';
+import { Plus, Trash2, PieChart, Activity, RefreshCcw, LogOut, Edit2, Save, X, DollarSign, Palette, Settings, Users, Trophy, Search, ExternalLink, Shield, FileSpreadsheet } from 'lucide-react';
 import { adminService, positionService, settingsService, costService, tournamentService } from '../services/api';
 import { useNotification } from '../context/NotificationContext';
 
@@ -20,9 +20,12 @@ const AdminPanel = () => {
     const [teams, setTeams] = useState([]);
     const [newTeam, setNewTeam] = useState({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '' });
     const [editingTeamId, setEditingTeamId] = useState(null);
+    const [showTeamModal, setShowTeamModal] = useState(false);
+    const [teamSearch, setTeamSearch] = useState('');
     const [selectedTeamPlayers, setSelectedTeamPlayers] = useState([]);
     const [showPlayersModal, setShowPlayersModal] = useState(false);
     const [viewingTeamName, setViewingTeamName] = useState('');
+    const [viewingTeamId, setViewingTeamId] = useState(null);
     const [settings, setSettings] = useState({
         team_name: '',
         team_logo_url: '',
@@ -181,6 +184,7 @@ const AdminPanel = () => {
             }
             setNewTeam({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '' });
             setEditingTeamId(null);
+            setShowTeamModal(false);
             loadData();
         } catch (err) {
             showNotification(err.response?.data?.error || 'Error al guardar equipo', 'error');
@@ -194,12 +198,13 @@ const AdminPanel = () => {
             delegate_document: t.delegate_document || '', delegate_name: t.delegate_name || '',
             delegate_email: t.delegate_email || '', registration_pin: t.registration_pin || ''
         });
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setShowTeamModal(true);
     };
 
     const handleCancelEditTeam = () => {
         setEditingTeamId(null);
         setNewTeam({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '' });
+        setShowTeamModal(false);
     };
 
     const handleLookupIdentification = async () => {
@@ -322,6 +327,7 @@ const AdminPanel = () => {
     const handleViewPlayers = async (team) => {
         try {
             setViewingTeamName(team.name);
+            setViewingTeamId(team.id);
             const res = await tournamentService.getTeamPlayers(team.id);
             setSelectedTeamPlayers(res.data);
             setShowPlayersModal(true);
@@ -453,6 +459,19 @@ const AdminPanel = () => {
         }
     };
 
+    const filteredTeams = teams.filter(t => {
+        if (!teamSearch.trim()) return true;
+        const q = teamSearch.toLowerCase();
+        return (
+            (t.name && t.name.toLowerCase().includes(q)) ||
+            (t.slug && t.slug.toLowerCase().includes(q)) ||
+            (t.admin_username && t.admin_username.toLowerCase().includes(q)) ||
+            (t.delegate_name && t.delegate_name.toLowerCase().includes(q)) ||
+            (t.delegate_document && t.delegate_document.toLowerCase().includes(q)) ||
+            (t.delegate_email && t.delegate_email.toLowerCase().includes(q))
+        );
+    });
+
     return (
         <div className="animate-fade-in">
             <div className="flex-responsive" style={{ marginBottom: '2rem' }}>
@@ -526,161 +545,368 @@ const AdminPanel = () => {
                     </div>
 
                     {activeTab === 'teams' && adminRole === 'superadmin' && (
-                        <div className="animate-fade-in">
-                            <div className="grid-form" style={{ gap: '2rem' }}>
+                        <div className="animate-fade-in" style={{ width: '100%' }}>
+                            {/* Header Section */}
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                flexWrap: 'wrap',
+                                gap: '1.25rem',
+                                marginBottom: '1.75rem'
+                            }}>
                                 <div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                                        <h3>{editingTeamId ? '📝 Editar Equipo' : 'Crear Nuevo Equipo'}</h3>
-                                        {editingTeamId && (
-                                            <button type="button" className="btn btn-secondary" onClick={handleCancelEditTeam} style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
-                                                Cancelar
+                                    <h2 style={{ margin: 0, fontSize: '1.8rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                        <Users size={28} color="var(--primary)" /> Equipos Existentes
+                                    </h2>
+                                    <p style={{ color: 'var(--text-muted)', margin: '0.35rem 0 0 0', fontSize: '0.95rem' }}>
+                                        Total: <strong>{teams.length}</strong> equipos registrados. Administra credenciales, enlaces públicos y asignación de torneos.
+                                    </p>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <div className="glass" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem', borderRadius: '10px' }}>
+                                        <Search size={18} color="var(--text-muted)" />
+                                        <input
+                                            type="text"
+                                            placeholder="Buscar equipo o delegado..."
+                                            value={teamSearch}
+                                            onChange={(e) => setTeamSearch(e.target.value)}
+                                            style={{
+                                                background: 'transparent',
+                                                border: 'none',
+                                                color: 'var(--text)',
+                                                outline: 'none',
+                                                fontSize: '0.9rem',
+                                                minWidth: '220px'
+                                            }}
+                                        />
+                                        {teamSearch && (
+                                            <button onClick={() => setTeamSearch('')} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}>
+                                                <X size={16} />
                                             </button>
                                         )}
                                     </div>
-                                    <form onSubmit={handleCreateTeam} className="glass" style={{ padding: '2rem' }}>
-                                        <div className="form-group">
-                                            <label className="label">Nombre del Equipo</label>
-                                            <input
-                                                type="text"
-                                                className="input"
-                                                placeholder="Ej: Junior FC"
-                                                value={newTeam.name}
-                                                onChange={(e) => setNewTeam({ ...newTeam, name: e.target.value })}
-                                                required
-                                            />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="label">Slug (URL)</label>
-                                            <input
-                                                type="text"
-                                                className="input"
-                                                placeholder="Ej: junior"
-                                                value={newTeam.slug}
-                                                onChange={(e) => setNewTeam({ ...newTeam, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
-                                                required
-                                            />
-                                            <small style={{ color: 'var(--text-muted)' }}>Manda a los jugadores aquí: localhost:3000/{newTeam.slug || '...'}/registro</small>
-                                        </div>
-                                        <hr style={{ margin: '1.5rem 0', opacity: 0.1 }} />
-                                        <div className="form-group">
-                                            <label className="label">Usuario Administrador</label>
-                                            <input
-                                                type="text"
-                                                className="input"
-                                                placeholder="Username"
-                                                value={newTeam.admin_username}
-                                                onChange={(e) => setNewTeam({ ...newTeam, admin_username: e.target.value })}
-                                                required
-                                            />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="label">Contraseña Administrador</label>
-                                            <input
-                                                type="password"
-                                                className="input"
-                                                placeholder="Password"
-                                                value={newTeam.admin_password}
-                                                onChange={(e) => setNewTeam({ ...newTeam, admin_password: e.target.value })}
-                                                required={!editingTeamId}
-                                            />
-                                        </div>
-                                        <hr style={{ margin: '1.5rem 0', opacity: 0.1 }} />
-                                        <h4 style={{ marginBottom: '1rem', color: 'var(--primary)' }}>Datos del Representante</h4>
-                                        <div className="form-group">
-                                            <label className="label">Documento Identidad</label>
-                                            <input
-                                                type="text" className="input" placeholder="Ej: 1100223344"
-                                                value={newTeam.delegate_document || ''}
-                                                onChange={(e) => setNewTeam({ ...newTeam, delegate_document: e.target.value })}
-                                            />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="label">Nombre del Representante</label>
-                                            <input
-                                                type="text" className="input" placeholder="Ej: Carlos Valderrama"
-                                                value={newTeam.delegate_name || ''}
-                                                onChange={(e) => setNewTeam({ ...newTeam, delegate_name: e.target.value })}
-                                            />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="label">Correo Válido (Email)</label>
-                                            <input
-                                                type="email" className="input" placeholder="Ej: admin@equipo.com"
-                                                value={newTeam.delegate_email || ''}
-                                                onChange={(e) => setNewTeam({ ...newTeam, delegate_email: e.target.value })}
-                                            />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                PIN de Registro Jugadores <span>(Opcional)</span>
-                                            </label>
-                                            <input 
-                                                type="text" className="input" placeholder="Ej: 1234" maxLength="4"
-                                                value={newTeam.registration_pin || ''}
-                                                onChange={(e) => setNewTeam({...newTeam, registration_pin: e.target.value.replace(/\D/g, '').slice(0, 4)})}
-                                            />
-                                        </div>
-                                        <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>
-                                            {editingTeamId ? 'Guardar Cambios' : <><Plus size={18} /> Crear Equipo e Inicializar</>}
-                                        </button>
-                                    </form>
-                                </div>
-                                <div>
-                                    <h3 style={{ marginBottom: '1.5rem' }}>Equipos Existentes</h3>
-                                    <div className="glass table-container">
-                                        <table>
-                                            <thead>
-                                                <tr>
-                                                    <th>Nombre</th>
-                                                    <th>Link de Registro</th>
-                                                    <th>Admin Usuario</th>
-                                                    <th>Torneo Asignado</th>
-                                                    <th>Acciones</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {teams.map(team => (
-                                                    <tr key={team.id}>
-                                                        <td 
-                                                            onClick={() => handleViewPlayers(team)}
-                                                            style={{ fontWeight: 600, cursor: 'pointer', color: 'var(--primary)' }}
-                                                            title="Ver jugadores"
-                                                        >
-                                                            {team.name}
-                                                        </td>
-                                                        <td><code>/{team.slug}</code></td>
-                                                        <td>{team.admin_username}</td>
-                                                        <td>
-                                                            <select 
-                                                                className="select"
-                                                                style={{ padding: '0.25rem', fontSize: '0.85rem' }}
-                                                                value={team.tournament_id || ''}
-                                                                onChange={(e) => handleAssignTournament(team.id, e.target.value)}
-                                                            >
-                                                                <option value="">Sin Torneo</option>
-                                                                {tournaments.map(t => (
-                                                                    <option key={t.id} value={t.id}>{t.name}</option>
-                                                                ))}
-                                                            </select>
-                                                        </td>
-                                                        <td style={{ display: 'flex', gap: '0.5rem' }}>
-                                                            <button className="btn btn-primary" style={{ padding: '0.4rem', fontSize: '0.8rem' }} onClick={() => handleEditTeam(team)}>
-                                                                Editar
-                                                            </button>
-                                                            <button className="btn btn-secondary" style={{ padding: '0.4rem', fontSize: '0.8rem' }} onClick={() => navigate(`/${team.slug}/registro`)}>
-                                                                Ver Link Registro
-                                                            </button>
-                                                            <button className="btn btn-secondary" style={{ padding: '0.4rem' }} onClick={() => handleDeleteTeam(team.id)}>
-                                                                <Trash2 size={14} color="var(--error)" />
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
+
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary"
+                                        onClick={() => {
+                                            setEditingTeamId(null);
+                                            setNewTeam({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '' });
+                                            setShowTeamModal(true);
+                                        }}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.4rem', fontWeight: 600, fontSize: '0.95rem' }}
+                                    >
+                                        <Plus size={20} /> Crear Nuevo Equipo
+                                    </button>
                                 </div>
                             </div>
+
+                            {/* Full-width Table */}
+                            <div className="glass table-container" style={{ width: '100%', overflowX: 'auto' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                    <thead>
+                                        <tr>
+                                            <th>Nombre del Equipo</th>
+                                            <th>Link de Registro</th>
+                                            <th>Admin Usuario</th>
+                                            <th>Representante</th>
+                                            <th>Torneo Asignado</th>
+                                            <th style={{ textAlign: 'center' }}>Acciones</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredTeams.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="6" style={{ textAlign: 'center', padding: '3.5rem 1rem', color: 'var(--text-muted)' }}>
+                                                    <Shield size={42} style={{ opacity: 0.35, marginBottom: '0.75rem' }} />
+                                                    <div>{teamSearch ? 'No se encontraron equipos que coincidan con la búsqueda.' : 'No hay equipos registrados todavía.'}</div>
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            filteredTeams.map(team => (
+                                                <tr key={team.id}>
+                                                    <td 
+                                                        onClick={() => handleViewPlayers(team)}
+                                                        style={{ fontWeight: 600, cursor: 'pointer', color: 'var(--primary)' }}
+                                                        title="Ver jugadores de este equipo"
+                                                    >
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                                            {team.logo_url ? (
+                                                                <img src={team.logo_url} alt={team.name} style={{ width: '28px', height: '28px', borderRadius: '6px', objectFit: 'contain' }} />
+                                                            ) : (
+                                                                <Shield size={20} color="var(--primary)" />
+                                                            )}
+                                                            <span style={{ fontSize: '1rem' }}>{team.name}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <a 
+                                                            href={`/${team.slug}/registro`} 
+                                                            target="_blank" 
+                                                            rel="noopener noreferrer" 
+                                                            style={{ color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                                                            title="Abrir página de registro en nueva pestaña"
+                                                        >
+                                                            <code>/{team.slug}</code>
+                                                            <ExternalLink size={13} color="var(--primary)" />
+                                                        </a>
+                                                    </td>
+                                                    <td>
+                                                        <span style={{ fontFamily: 'monospace', background: 'rgba(255,255,255,0.05)', padding: '0.2rem 0.5rem', borderRadius: '4px' }}>
+                                                            {team.admin_username}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        {team.delegate_name ? (
+                                                            <div>
+                                                                <div style={{ fontWeight: 500 }}>{team.delegate_name}</div>
+                                                                <small style={{ color: 'var(--text-muted)' }}>{team.delegate_email || team.delegate_document || '-'}</small>
+                                                            </div>
+                                                        ) : (
+                                                            <span style={{ color: 'var(--text-muted)' }}>Sin representante</span>
+                                                        )}
+                                                    </td>
+                                                    <td>
+                                                        <select 
+                                                            className="select"
+                                                            style={{ padding: '0.4rem 0.6rem', fontSize: '0.85rem', width: '100%', maxWidth: '200px' }}
+                                                            value={team.tournament_id || ''}
+                                                            onChange={(e) => handleAssignTournament(team.id, e.target.value)}
+                                                        >
+                                                            <option value="">Sin Torneo</option>
+                                                            {tournaments.map(t => (
+                                                                <option key={t.id} value={t.id}>{t.name}</option>
+                                                            ))}
+                                                        </select>
+                                                    </td>
+                                                    <td style={{ textAlign: 'center' }}>
+                                                        <div style={{ display: 'inline-flex', gap: '0.4rem', justifyContent: 'center' }}>
+                                                            <button 
+                                                                className="btn btn-secondary" 
+                                                                style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }} 
+                                                                onClick={() => handleViewPlayers(team)}
+                                                                title="Ver lista de jugadores"
+                                                            >
+                                                                <Users size={13} /> Jugadores
+                                                            </button>
+                                                            <button 
+                                                                className="btn btn-secondary" 
+                                                                style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }} 
+                                                                onClick={() => navigate(`/players?teamId=${team.id}&action=excel`)}
+                                                                title="Cargar jugadores vía Excel"
+                                                            >
+                                                                <FileSpreadsheet size={13} color="var(--success)" /> Excel
+                                                            </button>
+                                                            <button 
+                                                                className="btn btn-primary" 
+                                                                style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem' }} 
+                                                                onClick={() => handleEditTeam(team)}
+                                                                title="Editar datos del equipo"
+                                                            >
+                                                                Editar
+                                                            </button>
+                                                            <button 
+                                                                className="btn btn-secondary" 
+                                                                style={{ padding: '0.4rem 0.6rem' }} 
+                                                                onClick={() => handleDeleteTeam(team.id)}
+                                                                title="Eliminar equipo"
+                                                            >
+                                                                <Trash2 size={13} color="var(--error)" />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Modal Crear / Editar Equipo */}
+                            {showTeamModal && (
+                                <div style={{
+                                    position: 'fixed',
+                                    inset: 0,
+                                    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                                    backdropFilter: 'blur(6px)',
+                                    zIndex: 1000,
+                                    display: 'flex',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                    padding: '1.5rem'
+                                }}
+                                onClick={(e) => {
+                                    if (e.target === e.currentTarget) handleCancelEditTeam();
+                                }}
+                                >
+                                    <div className="glass animate-fade-in" style={{
+                                        width: '100%',
+                                        maxWidth: '650px',
+                                        maxHeight: '90vh',
+                                        overflowY: 'auto',
+                                        padding: '2.5rem',
+                                        borderRadius: '16px',
+                                        boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+                                        border: '1px solid var(--glass-border)'
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '1rem' }}>
+                                            <h3 style={{ margin: 0, fontSize: '1.4rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                                {editingTeamId ? <><Edit2 size={22} color="var(--primary)" /> Editar Equipo</> : <><Plus size={22} color="var(--primary)" /> Crear Nuevo Equipo</>}
+                                            </h3>
+                                            <button 
+                                                type="button" 
+                                                onClick={handleCancelEditTeam}
+                                                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.25rem' }}
+                                            >
+                                                <X size={22} />
+                                            </button>
+                                        </div>
+
+                                        <form onSubmit={handleCreateTeam}>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' }}>
+                                                <div className="form-group" style={{ margin: 0 }}>
+                                                    <label className="label">Nombre del Equipo *</label>
+                                                    <input
+                                                        type="text"
+                                                        className="input"
+                                                        placeholder="Ej: Junior FC"
+                                                        value={newTeam.name}
+                                                        onChange={(e) => {
+                                                            const nameVal = e.target.value;
+                                                            setNewTeam(prev => ({
+                                                                ...prev,
+                                                                name: nameVal,
+                                                                slug: !editingTeamId && (!prev.slug || prev.slug === prev.name.toLowerCase().replace(/\s+/g, '-')) 
+                                                                    ? nameVal.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+                                                                    : prev.slug
+                                                            }));
+                                                        }}
+                                                        required
+                                                    />
+                                                </div>
+                                                <div className="form-group" style={{ margin: 0 }}>
+                                                    <label className="label">Slug (URL) *</label>
+                                                    <input
+                                                        type="text"
+                                                        className="input"
+                                                        placeholder="Ej: junior-fc"
+                                                        value={newTeam.slug}
+                                                        onChange={(e) => setNewTeam({ ...newTeam, slug: e.target.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') })}
+                                                        required
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <small style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '1.25rem' }}>
+                                                URL de registro público para jugadores: <code>/{newTeam.slug || 'slug-del-equipo'}/registro</code>
+                                            </small>
+
+                                            <hr style={{ margin: '1.25rem 0', opacity: 0.15 }} />
+
+                                            <h4 style={{ marginBottom: '1rem', color: 'var(--primary)', fontSize: '0.95rem' }}>Credenciales de Acceso Administrador</h4>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' }}>
+                                                <div className="form-group" style={{ margin: 0 }}>
+                                                    <label className="label">Usuario Administrador *</label>
+                                                    <input
+                                                        type="text"
+                                                        className="input"
+                                                        placeholder="Username del equipo"
+                                                        value={newTeam.admin_username}
+                                                        onChange={(e) => setNewTeam({ ...newTeam, admin_username: e.target.value })}
+                                                        required
+                                                    />
+                                                </div>
+                                                <div className="form-group" style={{ margin: 0 }}>
+                                                    <label className="label">
+                                                        Contraseña {editingTeamId ? '(dejar en blanco para no cambiar)' : '*'}
+                                                    </label>
+                                                    <input
+                                                        type="password"
+                                                        className="input"
+                                                        placeholder={editingTeamId ? '••••••••' : 'Contraseña segura'}
+                                                        value={newTeam.admin_password}
+                                                        onChange={(e) => setNewTeam({ ...newTeam, admin_password: e.target.value })}
+                                                        required={!editingTeamId}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <hr style={{ margin: '1.25rem 0', opacity: 0.15 }} />
+
+                                            <h4 style={{ marginBottom: '1rem', color: 'var(--primary)', fontSize: '0.95rem' }}>Datos del Representante / Delegado</h4>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' }}>
+                                                <div className="form-group" style={{ margin: 0 }}>
+                                                    <label className="label">Documento Identidad</label>
+                                                    <input
+                                                        type="text"
+                                                        className="input"
+                                                        placeholder="Ej: 1100223344"
+                                                        value={newTeam.delegate_document || ''}
+                                                        onChange={(e) => setNewTeam({ ...newTeam, delegate_document: e.target.value })}
+                                                    />
+                                                </div>
+                                                <div className="form-group" style={{ margin: 0 }}>
+                                                    <label className="label">Nombre del Representante</label>
+                                                    <input
+                                                        type="text"
+                                                        className="input"
+                                                        placeholder="Ej: Carlos Valderrama"
+                                                        value={newTeam.delegate_name || ''}
+                                                        onChange={(e) => setNewTeam({ ...newTeam, delegate_name: e.target.value })}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1.25rem', marginBottom: '1.5rem' }}>
+                                                <div className="form-group" style={{ margin: 0 }}>
+                                                    <label className="label">Correo Electrónico (Email)</label>
+                                                    <input
+                                                        type="email"
+                                                        className="input"
+                                                        placeholder="admin@equipo.com"
+                                                        value={newTeam.delegate_email || ''}
+                                                        onChange={(e) => setNewTeam({ ...newTeam, delegate_email: e.target.value })}
+                                                    />
+                                                    <small style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '4px', display: 'block' }}>
+                                                        ✉️ Se enviarán las credenciales y link de inscripción a este correo.
+                                                    </small>
+                                                </div>
+                                                <div className="form-group" style={{ margin: 0 }}>
+                                                    <label className="label">PIN de Registro (4 dígitos)</label>
+                                                    <input 
+                                                        type="text"
+                                                        className="input"
+                                                        placeholder="Ej: 1234"
+                                                        maxLength="4"
+                                                        value={newTeam.registration_pin || ''}
+                                                        onChange={(e) => setNewTeam({...newTeam, registration_pin: e.target.value.replace(/\D/g, '').slice(0, 4)})}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '1.5rem', borderTop: '1px solid var(--glass-border)', paddingTop: '1.25rem' }}>
+                                                <button 
+                                                    type="button" 
+                                                    className="btn btn-secondary" 
+                                                    onClick={handleCancelEditTeam}
+                                                    style={{ padding: '0.75rem 1.5rem' }}
+                                                >
+                                                    Cancelar
+                                                </button>
+                                                <button 
+                                                    type="submit" 
+                                                    className="btn btn-primary"
+                                                    style={{ padding: '0.75rem 1.75rem', fontWeight: 600 }}
+                                                >
+                                                    {editingTeamId ? 'Guardar Cambios' : 'Crear Equipo e Inicializar'}
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -1187,10 +1413,37 @@ const AdminPanel = () => {
             {/* Modal de Jugadores */}
             {showPlayersModal && (
                 <div className="modal-overlay" onClick={() => setShowPlayersModal(false)}>
-                    <div className="glass modal-content animate-scale-up" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px', width: '90%' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                            <h3>Jugadores de {viewingTeamName}</h3>
-                            <button className="btn-icon" onClick={() => setShowPlayersModal(false)}>✕</button>
+                    <div className="glass modal-content animate-scale-up" onClick={e => e.stopPropagation()} style={{ maxWidth: '640px', width: '92%' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                            <div>
+                                <h3 style={{ margin: 0 }}>Jugadores de {viewingTeamName}</h3>
+                                <small style={{ color: 'var(--text-muted)' }}>{selectedTeamPlayers.length} jugadores en plantilla</small>
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                <button 
+                                    className="btn btn-secondary"
+                                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.7rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                                    onClick={() => {
+                                        setShowPlayersModal(false);
+                                        navigate(`/players?teamId=${viewingTeamId}&action=excel`);
+                                    }}
+                                    title="Cargar planilla en Excel"
+                                >
+                                    <FileSpreadsheet size={14} color="var(--success)" /> Carga Masiva Excel
+                                </button>
+                                <button 
+                                    className="btn btn-primary"
+                                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.7rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                                    onClick={() => {
+                                        setShowPlayersModal(false);
+                                        navigate(`/players?teamId=${viewingTeamId}`);
+                                    }}
+                                    title="Ver todas las opciones"
+                                >
+                                    <Users size={14} /> Gestión Completa
+                                </button>
+                                <button className="btn-icon" onClick={() => setShowPlayersModal(false)}>✕</button>
+                            </div>
                         </div>
                         <div className="players-list-scroll" style={{ maxHeight: '400px', overflowY: 'auto' }}>
                             {selectedTeamPlayers.length > 0 ? (
@@ -1224,8 +1477,22 @@ const AdminPanel = () => {
                                     </tbody>
                                 </table>
                             ) : (
-                                <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6 }}>
-                                    Este equipo no tiene jugadores aún.
+                                <div style={{ textAlign: 'center', padding: '2.5rem 1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px dashed rgba(255,255,255,0.1)' }}>
+                                    <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>⚽</div>
+                                    <h4 style={{ margin: '0 0 0.5rem 0' }}>Este equipo aún no tiene jugadores</h4>
+                                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', maxWidth: '400px', margin: '0 auto 1.25rem auto' }}>
+                                        Puedes cargar la nómina completa en segundos subiendo un archivo Excel o compartiendo el enlace de registro con el delegado.
+                                    </p>
+                                    <button 
+                                        className="btn btn-primary"
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', padding: '0.55rem 1.2rem' }}
+                                        onClick={() => {
+                                            setShowPlayersModal(false);
+                                            navigate(`/players?teamId=${viewingTeamId}&action=excel`);
+                                        }}
+                                    >
+                                        <FileSpreadsheet size={16} /> Subir Jugadores vía Excel
+                                    </button>
                                 </div>
                             )}
                         </div>

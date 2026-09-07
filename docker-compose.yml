@@ -30,6 +30,7 @@ services:
       DATABASE_URL: mysql+pymysql://team_user:team_password@db/football_team?charset=utf8mb4
       FLASK_APP: app.py
       FLASK_ENV: development
+      U2NET_HOME: /app/uploads/.u2net
     volumes:
       - ./backend:/app
       - ./backend/uploads:/app/uploads
