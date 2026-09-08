@@ -324,13 +324,59 @@ def log_activity(team_id, action, details=None):
     except Exception as e:
         print(f"Error logging activity: {e}")
 
-def send_team_welcome_email(to_email, delegate_name, team_name, slug, admin_user, admin_pass, pin=None):
+def resolve_app_url(req=None):
+    """
+    Resuelve la URL pública del frontend.
+    Prioridad:
+    1. Variable de entorno APP_URL si está definida y NO es localhost/127.0.0.1.
+    2. Cabeceras HTTP Origin o Referer de la petición actual (detecta automáticamente el dominio de producción).
+    3. Cabeceras de Proxy inverso (X-Forwarded-Host / Host).
+    4. Fallback a APP_URL del .env o https://eloncepro.com si no se detecta.
+    """
+    env_url = os.getenv('APP_URL', '').strip().rstrip('/')
+    if env_url and 'localhost' not in env_url and '127.0.0.1' not in env_url:
+        return env_url
+
+    r = req
+    if not r:
+        try:
+            from flask import has_request_context, request as flask_req
+            if has_request_context():
+                r = flask_req
+        except Exception:
+            r = None
+
+    if r:
+        origin = r.headers.get('Origin')
+        if origin and 'localhost' not in origin and '127.0.0.1' not in origin:
+            return origin.rstrip('/')
+
+        referer = r.headers.get('Referer')
+        if referer:
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(referer)
+                if parsed.netloc and 'localhost' not in parsed.netloc and '127.0.0.1' not in parsed.netloc:
+                    return f"{parsed.scheme}://{parsed.netloc}".rstrip('/')
+            except Exception:
+                pass
+
+        fwd_host = r.headers.get('X-Forwarded-Host') or r.headers.get('Host')
+        fwd_proto = r.headers.get('X-Forwarded-Proto', 'https' if r.is_secure else 'http')
+        if fwd_host and 'localhost' not in fwd_host and '127.0.0.1' not in fwd_host:
+            return f"{fwd_proto}://{fwd_host}".rstrip('/')
+
+    return env_url or 'http://localhost:3000'
+
+def send_team_welcome_email(to_email, delegate_name, team_name, slug, admin_user, admin_pass, pin=None, app_url=None):
     if not to_email or '@' not in str(to_email):
         return
 
     to_email = str(to_email).strip()
-    platform_name = os.getenv('PLATFORM_NAME', 'Plataforma Deportiva')
-    app_url = os.getenv('APP_URL', 'http://localhost:3000').rstrip('/')
+    platform_name = os.getenv('PLATFORM_NAME', 'ElOncePro')
+    if not app_url:
+        app_url = resolve_app_url()
+    app_url = app_url.rstrip('/')
     admin_login_url = f"{app_url}/login"
     registration_url = f"{app_url}/{slug}/registro"
     
@@ -486,11 +532,11 @@ Comparte este enlace con tus jugadores:
     except Exception as ex:
         print(f"⚠️ Error al enviar correo de bienvenida a {to_email}: {ex}")
 
-def send_team_welcome_email_async(to_email, delegate_name, team_name, slug, admin_user, admin_pass, pin=None):
+def send_team_welcome_email_async(to_email, delegate_name, team_name, slug, admin_user, admin_pass, pin=None, app_url=None):
     try:
         t = threading.Thread(
             target=send_team_welcome_email,
-            args=(to_email, delegate_name, team_name, slug, admin_user, admin_pass, pin),
+            args=(to_email, delegate_name, team_name, slug, admin_user, admin_pass, pin, app_url),
             daemon=True
         )
         t.start()
@@ -3760,6 +3806,7 @@ def create_team():
 
         # Send welcome email to team delegate
         if del_email:
+            current_app_url = resolve_app_url(request)
             send_team_welcome_email_async(
                 to_email=del_email,
                 delegate_name=del_name or name,
@@ -3767,7 +3814,8 @@ def create_team():
                 slug=slug,
                 admin_user=admin_user,
                 admin_pass=admin_pass,
-                pin=reg_pin
+                pin=reg_pin,
+                app_url=current_app_url
             )
 
         return jsonify({
