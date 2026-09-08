@@ -186,6 +186,28 @@ with app.app_context():
                 except Exception as ex:
                     print(f"⚠️ Could not add column {col} to teams: {ex}")
                     db.session.rollback()
+        # Safe Player columns upgrade
+        existing_player_cols = db.session.execute(text("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_name = 'players' AND table_schema = (SELECT DATABASE())")).fetchall()
+        player_col_names = [row[0] for row in existing_player_cols]
+        
+        player_safe_cols = [
+            ('team_id', 'INT'),
+            ('uniform_number', 'INT'),
+            ('position', 'VARCHAR(50)'),
+            ('primary_position_id', 'INT'),
+            ('secondary_position_id', 'INT'),
+            ('payment_status', "VARCHAR(50) DEFAULT 'Pendiente'")
+        ]
+        for col, col_type in player_safe_cols:
+            if col not in player_col_names:
+                try:
+                    db.session.execute(text(f"ALTER TABLE players ADD COLUMN {col} {col_type}"))
+                    db.session.commit()
+                    print(f"✅ Added missing column to players: {col}")
+                except Exception as ex:
+                    print(f"⚠️ Could not add column {col} to players: {ex}")
+                    db.session.rollback()
+
         upgrades = [
             # Phases
             "ALTER TABLE tournament_phases ADD COLUMN is_double_round BOOLEAN DEFAULT 0",
@@ -1836,21 +1858,37 @@ def assign_team_to_tournament(t_id):
 @app.route('/api/teams/<int:team_id>/players', methods=['GET'])
 def get_team_players(team_id):
     try:
-        # Consulta cruda directa
-        res = db.session.execute(text("SELECT id, full_name, document_number, uniform_number, position FROM players WHERE team_id = :t"), {"t": team_id}).fetchall()
+        sql = """
+            SELECT p.*, pos1.name as primary_pos_name
+            FROM players p
+            LEFT JOIN positions pos1 ON p.primary_position_id = pos1.id
+            WHERE p.team_id = :t
+            ORDER BY p.id ASC
+        """
+        res = db.session.execute(text(sql), {"t": team_id})
+        columns = res.keys()
         players = []
         for r in res:
-            players.append({
-                "id": r[0],
-                "full_name": r[1],
-                "document_number": r[2],
-                "uniform_number": r[3],
-                "position": r[4]
-            })
-        return jsonify(players)
+            p_dict = dict(zip(columns, r))
+            p_dict["uniform_number"] = p_dict.get("uniform_number") or '-'
+            p_dict["position"] = p_dict.get("primary_pos_name") or p_dict.get("position") or '-'
+            players.append(p_dict)
+        return jsonify(players), 200
     except Exception as e:
-        print(f"FATAL ERROR PLAYERS: {e}")
-        return jsonify({"error": str(e)}), 500
+        print(f"WARN GET_TEAM_PLAYERS JOIN query failed ({e}), falling back...")
+        try:
+            res_fb = db.session.execute(text("SELECT * FROM players WHERE team_id = :t"), {"t": team_id})
+            columns = res_fb.keys()
+            players_fb = []
+            for r in res_fb:
+                p_dict = dict(zip(columns, r))
+                p_dict["uniform_number"] = p_dict.get("uniform_number") or '-'
+                p_dict["position"] = p_dict.get("position") or '-'
+                players_fb.append(p_dict)
+            return jsonify(players_fb), 200
+        except Exception as e2:
+            print(f"FATAL ERROR GET_TEAM_PLAYERS: {e2}")
+            return jsonify([]), 200
 
 @app.route('/api/tournaments/<string:slug>', methods=['GET'])
 def get_tournament(slug):
