@@ -36,6 +36,7 @@ db = SQLAlchemy(app)
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'ico', 'pdf'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32 MB max upload limit
 
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
@@ -682,7 +683,8 @@ Generado automáticamente por {platform_name}
         print(f"Equipo: {team_name} | Dorsal: #{uniform_number} | Posición: {position_name}")
         if tournament_name:
             print(f"Torneo: {tournament_name}")
-        print(f"Firma: Cuerpo Técnico y Directiva de {signer_name}")
+        print(f"Firma:  {signer_name} Director tècnico")
+        print( {team_name} )
         print("="*62 + "\n")
         return
 

@@ -7,6 +7,7 @@ import { Search, Edit2, Trash2, History, X, ArrowLeft, DollarSign, Save, Upload,
 import { playerService, costService, positionService, uniformService, cardTemplateService, adminService, globalPlayerService } from '../services/api';
 import PlayerCard from '../components/PlayerCard';
 import CameraModal from '../components/CameraModal';
+import { compressImage } from '../utils/imageCompressor';
 
 const BLOOD_TYPES = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
 
@@ -291,7 +292,8 @@ const PlayersList = () => {
 
             if (enrollPhotoFile && playerId) {
                 try {
-                    await playerService.uploadPhoto(playerId, enrollPhotoFile, teamId);
+                    const finalPhoto = await compressImage(enrollPhotoFile);
+                    await playerService.uploadPhoto(playerId, finalPhoto, teamId);
                 } catch (pErr) {
                     console.warn('Foto no se pudo procesar:', pErr);
                     showNotification('Jugador inscrito, pero hubo un detalle al procesar la foto', 'warning');
@@ -583,7 +585,8 @@ const PlayersList = () => {
         setUploadingPhoto(true);
         setPhotoWarning('');
         try {
-            const res = await playerService.uploadPhoto(editForm.id, file, getActiveTeamId());
+            const compressed = await compressImage(file);
+            const res = await playerService.uploadPhoto(editForm.id, compressed, getActiveTeamId());
             setEditForm({ ...editForm, photo_url: res.data.photo_url, photo_cutout_url: res.data.photo_cutout_url });
             if (res.data.warning) {
                 setPhotoWarning(res.data.warning);

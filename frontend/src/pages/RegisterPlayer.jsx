@@ -4,6 +4,7 @@ import { playerService, positionService, uniformService, settingsService, costSe
 import { useParams } from 'react-router-dom';
 import { useNotification } from '../context/NotificationContext';
 import CameraModal from '../components/CameraModal';
+import { compressImage } from '../utils/imageCompressor';
 
 const RegisterPlayer = () => {
     const { teamSlug } = useParams();
@@ -46,9 +47,15 @@ const RegisterPlayer = () => {
     const [cutoutPreview, setCutoutPreview] = useState('');
     const [showCameraModal, setShowCameraModal] = useState(false);
 
-    const handleCameraCapture = (file) => {
-        setPhotoFile(file);
-        setPhotoPreview(URL.createObjectURL(file));
+    const handleCameraCapture = async (file) => {
+        try {
+            const compressed = await compressImage(file);
+            setPhotoFile(compressed);
+            setPhotoPreview(URL.createObjectURL(compressed));
+        } catch (_) {
+            setPhotoFile(file);
+            setPhotoPreview(URL.createObjectURL(file));
+        }
         setCutoutPreview('');
         setPhotoWarning('');
     };
@@ -162,11 +169,17 @@ const RegisterPlayer = () => {
         setFormData({ ...formData, phone: val });
     };
 
-    const handlePhotoSelect = (e) => {
+    const handlePhotoSelect = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        setPhotoFile(file);
-        setPhotoPreview(URL.createObjectURL(file));
+        try {
+            const compressed = await compressImage(file);
+            setPhotoFile(compressed);
+            setPhotoPreview(URL.createObjectURL(compressed));
+        } catch (_) {
+            setPhotoFile(file);
+            setPhotoPreview(URL.createObjectURL(file));
+        }
         setCutoutPreview('');
         setPhotoWarning('');
     };
@@ -200,7 +213,8 @@ const RegisterPlayer = () => {
             if (photoFile && playerId) {
                 setUploadingPhoto(true);
                 try {
-                    const photoRes = await playerService.uploadPhotoPublic(teamSlug, playerId, photoFile);
+                    const finalPhoto = await compressImage(photoFile);
+                    const photoRes = await playerService.uploadPhotoPublic(teamSlug, playerId, finalPhoto);
                     setCutoutPreview(photoRes.data.photo_cutout_url || '');
                     if (photoRes.data.warning) {
                         setPhotoWarning(photoRes.data.warning);
