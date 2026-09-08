@@ -27,11 +27,11 @@ export const playerService = {
     checkDocument: (teamSlug, docNumber) => api.post(`/${teamSlug}/players/check-document`, { document_number: docNumber }),
     register: (teamSlug, playerData) => api.post(`/${teamSlug}/players`, playerData),
     getAll: (teamId) => api.get('/players', teamOverride(teamId)),
-    delete: (id) => api.delete(`/players/${id}`),
-    getHistory: (id) => api.get(`/players/${id}/history`),
-    updatePayment: (id, data) => api.patch(`/players/${id}/payment`, data),
+    delete: (id, teamId) => api.delete(`/players/${id}`, teamOverride(teamId)),
+    getHistory: (id, teamId) => api.get(`/players/${id}/history`, teamOverride(teamId)),
+    updatePayment: (id, data, teamId) => api.patch(`/players/${id}/payment`, data, teamOverride(teamId)),
     getEps: (teamSlug) => api.get(`/${teamSlug}/eps`),
-    update: (id, data) => api.put(`/players/${id}`, data),
+    update: (id, data, teamId) => api.put(`/players/${id}`, data, teamOverride(teamId)),
     uploadPhoto: (id, file, teamId) => {
         const formData = new FormData();
         formData.append('file', file);
@@ -66,9 +66,9 @@ export const playerAuthService = {
 export const positionService = {
     getAllByTeam: (teamSlug) => api.get(`/${teamSlug}/positions`),
     getAll: (teamId) => api.get('/positions', teamOverride(teamId)),
-    create: (data) => api.post('/positions', data),
-    update: (id, data) => api.put(`/positions/${id}`, data),
-    delete: (id) => api.delete(`/positions/${id}`),
+    create: (data, teamId) => api.post('/positions', data, teamOverride(teamId)),
+    update: (id, data, teamId) => api.put(`/positions/${id}`, data, teamOverride(teamId)),
+    delete: (id, teamId) => api.delete(`/positions/${id}`, teamOverride(teamId)),
 };
 
 export const uniformService = {
@@ -109,8 +109,8 @@ export const refereeService = {
 };
 
 export const adminService = {
-    getStats: () => api.get('/stats'),
-    getLogs: () => api.get('/logs'),
+    getStats: (teamId) => api.get('/stats', teamOverride(teamId)),
+    getLogs: (teamId) => api.get('/logs', teamOverride(teamId)),
     login: (credentials) => api.post('/login', credentials),
     getTeams: () => api.get('/teams'),
     createTeam: (data) => api.post('/teams', data),
@@ -121,8 +121,15 @@ export const adminService = {
 export const settingsService = {
     getPublic: (teamSlug) => api.get(`/${teamSlug}/settings`),
     validatePin: (teamSlug, pin) => api.post(`/${teamSlug}/validate-pin`, { pin }),
-    get: () => api.get('/settings'),
-    update: (data) => api.put('/settings', data),
+    get: (teamId) => api.get('/settings', teamOverride(teamId)),
+    update: (data, teamId) => api.put('/settings', data, teamOverride(teamId)),
+    uploadLogo: (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        return api.post('/upload-logo', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+    },
     uploadFile: (file) => {
         const formData = new FormData();
         formData.append('file', file);
@@ -134,10 +141,10 @@ export const settingsService = {
 
 export const costService = {
     getPublic: (teamSlug) => api.get(`/${teamSlug}/costs`),
-    getAll: () => api.get('/costs'),
-    create: (data) => api.post('/costs', data),
-    update: (id, data) => api.put(`/costs/${id}`, data),
-    delete: (id) => api.delete(`/costs/${id}`),
+    getAll: (teamId) => api.get('/costs', teamOverride(teamId)),
+    create: (data, teamId) => api.post('/costs', data, teamOverride(teamId)),
+    update: (id, data, teamId) => api.put(`/costs/${id}`, data, teamOverride(teamId)),
+    delete: (id, teamId) => api.delete(`/costs/${id}`, teamOverride(teamId)),
 };
 
 export const communityService = {

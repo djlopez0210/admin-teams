@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toPng, toBlob } from 'html-to-image';
 import JSZip from 'jszip';
-import { Search, Edit2, Trash2, History, X, ArrowLeft, DollarSign, Save, Upload, CreditCard, Download, Package, MoreVertical, FileSpreadsheet, UserPlus, CheckCircle, AlertCircle, Camera, UserCheck, RefreshCw } from 'lucide-react';
+import { Search, Edit2, Trash2, History, X, ArrowLeft, DollarSign, Save, Upload, CreditCard, Download, Package, MoreVertical, FileSpreadsheet, UserPlus, CheckCircle, AlertCircle, Camera, UserCheck, RefreshCw, Plus, Settings, Copy, ExternalLink } from 'lucide-react';
 import { playerService, costService, positionService, uniformService, cardTemplateService, adminService, globalPlayerService } from '../services/api';
 import PlayerCard from '../components/PlayerCard';
 import CameraModal from '../components/CameraModal';
@@ -42,6 +42,10 @@ const PlayersList = () => {
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [totalMandatory, setTotalMandatory] = useState(0);
+    const [teamCosts, setTeamCosts] = useState([]);
+    const [showCostsModal, setShowCostsModal] = useState(false);
+    const [newCostItem, setNewCostItem] = useState({ item_name: '', amount: '', is_mandatory: true });
+    const [paymentFilter, setPaymentFilter] = useState('all'); // 'all' | 'paid' | 'debt'
     const [editForm, setEditForm] = useState(null);
     const [positions, setPositions] = useState([]);
     const [availableNumbers, setAvailableNumbers] = useState([]);
@@ -443,6 +447,7 @@ const PlayersList = () => {
     useEffect(() => {
         if (!isSuperAdmin || !selectedTeamId) return;
         loadPlayers(selectedTeamId);
+        loadCosts(selectedTeamId);
     }, [selectedTeamId]);
 
     useEffect(() => {
@@ -458,10 +463,12 @@ const PlayersList = () => {
         return () => window.removeEventListener('resize', computeScale);
     }, [viewingCardData, cardTemplate]);
 
-    const loadCosts = async () => {
+    const loadCosts = async (teamId) => {
         try {
-            const res = await costService.getAll();
-            const mandatory = res.data
+            const tId = teamId || (isSuperAdmin ? selectedTeamId : undefined);
+            const res = await costService.getAll(tId);
+            setTeamCosts(res.data || []);
+            const mandatory = (res.data || [])
                 .filter(c => c.is_mandatory)
                 .reduce((acc, current) => acc + current.amount, 0);
             setTotalMandatory(mandatory);
@@ -470,10 +477,39 @@ const PlayersList = () => {
         }
     };
 
+    const handleAddCost = async (e) => {
+        e.preventDefault();
+        if (!newCostItem.item_name || !newCostItem.amount) return;
+        try {
+            const targetTeamId = isSuperAdmin ? selectedTeamId : undefined;
+            await costService.create(newCostItem, targetTeamId);
+            showNotification('Concepto de cobro agregado correctamente', 'success');
+            setNewCostItem({ item_name: '', amount: '', is_mandatory: true });
+            loadCosts(targetTeamId);
+            loadPlayers(targetTeamId);
+        } catch (err) {
+            showNotification('Error al agregar concepto de cobro', 'error');
+        }
+    };
+
+    const handleDeleteCost = async (costId) => {
+        if (!window.confirm('¿Deseas eliminar este concepto de cobro?')) return;
+        try {
+            const targetTeamId = isSuperAdmin ? selectedTeamId : undefined;
+            await costService.delete(costId, targetTeamId);
+            showNotification('Concepto eliminado', 'success');
+            loadCosts(targetTeamId);
+            loadPlayers(targetTeamId);
+        } catch (err) {
+            showNotification('Error al eliminar concepto', 'error');
+        }
+    };
+
     const loadPlayers = async (teamId) => {
         setLoading(true);
         try {
-            const res = await playerService.getAll(teamId);
+            const tId = teamId || (isSuperAdmin ? selectedTeamId : undefined);
+            const res = await playerService.getAll(tId);
             setPlayers(res.data);
         } catch (err) {
             console.error('Error fetching players', err);
@@ -482,12 +518,13 @@ const PlayersList = () => {
         }
     };
 
-    const handleDelete = async (id) => {
+    const handleDelete = async (id, playerTeamId) => {
         if (window.confirm('¿Estás seguro de que deseas eliminar este jugador? Su número de uniforme volverá a estar disponible.')) {
             try {
-                await playerService.delete(id);
+                const targetTeamId = isSuperAdmin ? (playerTeamId || selectedTeamId) : undefined;
+                await playerService.delete(id, targetTeamId);
                 showNotification('Jugador eliminado con éxito', 'success');
-                loadPlayers();
+                loadPlayers(targetTeamId);
             } catch (err) {
                 showNotification('Error al eliminar jugador', 'error');
             }
@@ -496,7 +533,8 @@ const PlayersList = () => {
 
     const viewHistory = async (player) => {
         try {
-            const res = await playerService.getHistory(player.id);
+            const targetTeamId = isSuperAdmin ? (player.team_id || selectedTeamId) : undefined;
+            const res = await playerService.getHistory(player.id, targetTeamId);
             setHistoryData(res.data);
             setHistoryPlayer(player);
         } catch (err) {
@@ -526,13 +564,14 @@ const PlayersList = () => {
     const handleSavePayment = async (e) => {
         e.preventDefault();
         try {
+            const targetTeamId = isSuperAdmin ? (selectedPlayer?.team_id || selectedTeamId) : undefined;
             await playerService.updatePayment(selectedPlayer.id, {
                 payment_status: paymentForm.status,
                 payment_amount: paymentForm.amount
-            });
+            }, targetTeamId);
             showNotification('Pago actualizado correctamente', 'success');
             setShowPaymentModal(false);
-            loadPlayers();
+            loadPlayers(targetTeamId);
         } catch (err) {
             showNotification('Error al actualizar pago', 'error');
         }
@@ -549,9 +588,10 @@ const PlayersList = () => {
         setPhotoWarning('');
         setShowEditModal(true);
         try {
+            const targetTeamId = isSuperAdmin ? (player.team_id || selectedTeamId) : undefined;
             const [posRes, numRes] = await Promise.all([
-                positionService.getAll(),
-                uniformService.getAll()
+                positionService.getAll(targetTeamId),
+                uniformService.getAll(targetTeamId)
             ]);
             setPositions(posRes.data);
             
@@ -570,10 +610,11 @@ const PlayersList = () => {
         e.preventDefault();
         setSaving(true);
         try {
-            await playerService.update(editForm.id, editForm);
+            const targetTeamId = isSuperAdmin ? (editForm.team_id || selectedTeamId) : undefined;
+            await playerService.update(editForm.id, editForm, targetTeamId);
             showNotification('Jugador actualizado con éxito', 'success');
             setShowEditModal(false);
-            loadPlayers();
+            loadPlayers(targetTeamId);
         } catch (err) {
             showNotification(err.response?.data?.error || 'Error al actualizar jugador', 'error');
         } finally {
@@ -691,14 +732,35 @@ const PlayersList = () => {
         }
     };
 
-    const filteredPlayers = players.filter(p =>
-        p.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.document_number.includes(searchTerm)
-    );
+    // Métricas económicas de la nómina
+    const totalCollected = players.reduce((sum, p) => {
+        const isPaid = p.payment_status === 'Pagó';
+        const amt = isPaid ? (Number(p.payment_amount) || totalMandatory) : (Number(p.payment_amount) || 0);
+        return sum + amt;
+    }, 0);
+
+    const totalPendingDebt = players.reduce((sum, p) => {
+        const isPaid = p.payment_status === 'Pagó';
+        if (isPaid) return sum;
+        const paid = Number(p.payment_amount) || 0;
+        return sum + Math.max(0, totalMandatory - paid);
+    }, 0);
+
+    const paidCount = players.filter(p => p.payment_status === 'Pagó').length;
+    const debtCount = players.filter(p => p.payment_status !== 'Pagó').length;
+
+    const filteredPlayers = players.filter(p => {
+        const matchesSearch = p.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (p.document_number && p.document_number.includes(searchTerm));
+        if (!matchesSearch) return false;
+        if (paymentFilter === 'paid') return p.payment_status === 'Pagó';
+        if (paymentFilter === 'debt') return p.payment_status !== 'Pagó';
+        return true;
+    });
 
     return (
         <div className="animate-fade-in">
-            <div className="flex-responsive" style={{ marginBottom: '2rem', alignItems: 'flex-end' }}>
+            <div className="flex-responsive" style={{ marginBottom: '1.5rem', alignItems: 'flex-end' }}>
                 <div>
                     <button
                         className="btn btn-secondary"
@@ -707,9 +769,9 @@ const PlayersList = () => {
                     >
                         <ArrowLeft size={14} /> Volver al Panel
                     </button>
-                    <h1>{isSuperAdmin ? 'Ver Jugadores' : 'Nómina del Equipo'}</h1>
+                    <h1>{isSuperAdmin ? 'Jugadores y Recaudo' : 'Nómina del Equipo'}</h1>
                     <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>
-                        {isSuperAdmin ? 'Vista de solo lectura: elegí un equipo para ver sus jugadores y tarjetas.' : 'Listado oficial de jugadores registrados y activos.'}
+                        {isSuperAdmin ? 'Gestión de nómina, cobros y estado de cuenta por equipo.' : 'Listado oficial de jugadores registrados, control de pagos y cartera.'}
                     </p>
                     {isSuperAdmin ? (
                         <select
@@ -724,9 +786,34 @@ const PlayersList = () => {
                             ))}
                         </select>
                     ) : (
-                        <div style={{ display: 'inline-block', padding: '0.5rem 1rem', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '8px', borderLeft: '4px solid var(--primary)' }}>
-                            <span style={{ fontSize: '0.85rem', color: 'var(--primary)', fontWeight: 600, display: 'block' }}>🔗 Enlace de inscripción para jugadores:</span>
-                            <code style={{ fontSize: '0.85rem' }}>http://localhost:3000/{localStorage.getItem('adminTeamSlug') || '...'}/registro</code>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 1rem', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '8px', borderLeft: '4px solid var(--primary)', flexWrap: 'wrap' }}>
+                            <div>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 600, display: 'block' }}>🔗 Enlace de inscripción pública:</span>
+                                <code style={{ fontSize: '0.85rem' }}>{`${window.location.origin}/${teamInfo?.slug || localStorage.getItem('adminTeamSlug') || '...'}/registro`}</code>
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                <button 
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                    onClick={() => {
+                                        const url = `${window.location.origin}/${teamInfo?.slug || localStorage.getItem('adminTeamSlug') || '...'}/registro`;
+                                        navigator.clipboard.writeText(url);
+                                        showNotification('¡Enlace de inscripción copiado!', 'success');
+                                    }}
+                                >
+                                    <Copy size={13} /> Copiar
+                                </button>
+                                <a 
+                                    href={`${window.location.origin}/${teamInfo?.slug || localStorage.getItem('adminTeamSlug') || '...'}/registro`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="btn btn-primary"
+                                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                >
+                                    <ExternalLink size={13} /> Abrir
+                                </a>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -736,7 +823,7 @@ const PlayersList = () => {
                         <input
                             type="text"
                             className="input"
-                            placeholder="Buscar por nombre..."
+                            placeholder="Buscar por nombre o documento..."
                             style={{ paddingLeft: '3rem', width: '100%' }}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
@@ -774,9 +861,108 @@ const PlayersList = () => {
                 </div>
             </div>
 
+            {(!isSuperAdmin || selectedTeamId) && (
+                <div style={{ marginBottom: '1.5rem' }}>
+                    {/* Economic Summary Cards */}
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                        gap: '1rem',
+                        marginBottom: '1rem'
+                    }}>
+                        <div className="glass" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Total Recaudado</span>
+                                <span style={{ background: 'rgba(34, 197, 94, 0.15)', color: 'var(--success)', padding: '0.2rem 0.5rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
+                                    {players.length > 0 ? Math.round((paidCount / players.length) * 100) : 0}% al día
+                                </span>
+                            </div>
+                            <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--success)' }}>
+                                ${totalCollected.toLocaleString()}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                Ingresos confirmados en caja
+                            </div>
+                        </div>
+
+                        <div className="glass" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Pendiente por Cobrar</span>
+                                <span style={{ background: 'rgba(239, 68, 68, 0.15)', color: 'var(--error)', padding: '0.2rem 0.5rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
+                                    {debtCount} adeudan
+                                </span>
+                            </div>
+                            <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--error)' }}>
+                                ${totalPendingDebt.toLocaleString()}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                Cartera pendiente de jugadores
+                            </div>
+                        </div>
+
+                        <div className="glass" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Cuota por Jugador</span>
+                                <button
+                                    className="btn btn-secondary"
+                                    onClick={() => setShowCostsModal(true)}
+                                    style={{ padding: '0.15rem 0.5rem', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+                                    title="Ver o configurar tarifas y costos"
+                                >
+                                    <Settings size={12} /> Configurar
+                                </button>
+                            </div>
+                            <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary)' }}>
+                                ${totalMandatory.toLocaleString()}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                {teamCosts.length} conceptos obligatorios
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Filter Bar */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 500 }}>Filtrar cartera:</span>
+                            <button
+                                className={`btn ${paymentFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                                style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
+                                onClick={() => setPaymentFilter('all')}
+                            >
+                                Todos ({players.length})
+                            </button>
+                            <button
+                                className={`btn ${paymentFilter === 'paid' ? 'btn-primary' : 'btn-secondary'}`}
+                                style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', color: paymentFilter === 'paid' ? '#000' : 'var(--success)' }}
+                                onClick={() => setPaymentFilter('paid')}
+                            >
+                                ✅ Al Día ({paidCount})
+                            </button>
+                            <button
+                                className={`btn ${paymentFilter === 'debt' ? 'btn-primary' : 'btn-secondary'}`}
+                                style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', color: paymentFilter === 'debt' ? '#000' : 'var(--error)' }}
+                                onClick={() => setPaymentFilter('debt')}
+                            >
+                                ⚠️ Con Deuda ({debtCount})
+                            </button>
+                        </div>
+                        <div>
+                            <button
+                                className="btn btn-secondary"
+                                onClick={() => setShowCostsModal(true)}
+                                style={{ padding: '0.35rem 0.8rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                            >
+                                <DollarSign size={14} color="var(--primary)" /> Tarifas y Conceptos ({teamCosts.length})
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {isSuperAdmin && !selectedTeamId ? (
                 <div className="glass" style={{ padding: '3rem', textAlign: 'center', opacity: 0.7 }}>
-                    Selecciona un equipo arriba para ver sus jugadores.
+                    Selecciona un equipo arriba para ver sus jugadores, recaudos y opciones de pago.
                 </div>
             ) : (
             <div className="glass table-container" onClick={() => setOpenMenuId(null)}>
@@ -784,21 +970,35 @@ const PlayersList = () => {
                     <thead>
                         <tr>
                             <th>Nro.</th>
-                            <th>Nombre</th>
+                            <th>Jugador</th>
+                            <th>Documento</th>
                             <th>Posición</th>
                             <th>Uniforme</th>
-                            <th>Acciones</th>
+                            <th>Estado de Pago</th>
+                            <th>Adeuda / Saldo</th>
+                            <th style={{ textAlign: 'center' }}>Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan="5" style={{ textAlign: 'center', padding: '3rem' }}>Cargando jugadores...</td></tr>
+                            <tr><td colSpan="8" style={{ textAlign: 'center', padding: '3rem' }}>Cargando jugadores...</td></tr>
                         ) : filteredPlayers.length === 0 ? (
-                            <tr><td colSpan="5" style={{ textAlign: 'center', padding: '3rem' }}>No se encontraron jugadores.</td></tr>
+                            <tr><td colSpan="8" style={{ textAlign: 'center', padding: '3rem' }}>No se encontraron jugadores con los filtros seleccionados.</td></tr>
                         ) : filteredPlayers.map((p, idx) => (
                             <tr key={p.id}>
                                 <td>{idx + 1}</td>
                                 <td style={{ fontWeight: 600 }}>{p.full_name}</td>
+                                <td>
+                                    <code style={{
+                                        background: p.payment_status === 'Pagó' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(255, 255, 255, 0.05)',
+                                        color: p.payment_status === 'Pagó' ? 'var(--success)' : 'var(--text)',
+                                        padding: '0.2rem 0.4rem',
+                                        borderRadius: '4px',
+                                        fontSize: '0.8rem'
+                                    }}>
+                                        {p.document_number}
+                                    </code>
+                                </td>
                                 <td>
                                     <div>{p.primary_pos_name}</div>
                                     {p.secondary_pos_name && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{p.secondary_pos_name}</div>}
@@ -815,21 +1015,122 @@ const PlayersList = () => {
                                         #{p.uniform_number} <span style={{ opacity: 0.7, fontWeight: 400 }}>({p.uniform_size})</span>
                                     </span>
                                 </td>
-                                <td style={{ position: 'relative' }}>
-                                    <button
-                                        className="btn btn-secondary"
-                                        style={{ padding: '0.4rem' }}
-                                        title="Acciones"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (openMenuId === p.id) { setOpenMenuId(null); return; }
-                                            const rect = e.currentTarget.getBoundingClientRect();
-                                            setMenuPos({ top: rect.bottom + 4, left: Math.max(8, rect.right - 190) });
-                                            setOpenMenuId(p.id);
-                                        }}
-                                    >
-                                        <MoreVertical size={16} />
-                                    </button>
+                                <td>
+                                    {p.payment_status === 'Pagó' ? (
+                                        <button
+                                            className="btn btn-secondary"
+                                            style={{
+                                                padding: '0.25rem 0.65rem',
+                                                fontSize: '0.8rem',
+                                                background: 'rgba(34, 197, 94, 0.15)',
+                                                color: 'var(--success)',
+                                                border: '1px solid var(--success)',
+                                                borderRadius: '20px',
+                                                cursor: 'pointer',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '0.35rem'
+                                            }}
+                                            onClick={() => handleOpenPayment(p)}
+                                            title="Clic para modificar pago"
+                                        >
+                                            ✅ Pagó (${(Number(p.payment_amount) || totalMandatory).toLocaleString()})
+                                        </button>
+                                    ) : p.payment_status === 'Abonó' ? (
+                                        <button
+                                            className="btn btn-secondary"
+                                            style={{
+                                                padding: '0.25rem 0.65rem',
+                                                fontSize: '0.8rem',
+                                                background: 'rgba(56, 189, 248, 0.15)',
+                                                color: 'var(--primary)',
+                                                border: '1px solid var(--primary)',
+                                                borderRadius: '20px',
+                                                cursor: 'pointer',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '0.35rem'
+                                            }}
+                                            onClick={() => handleOpenPayment(p)}
+                                            title="Clic para registrar abono o saldo"
+                                        >
+                                            💰 Abonó (${(Number(p.payment_amount) || 0).toLocaleString()})
+                                        </button>
+                                    ) : (
+                                        <button
+                                            className="btn btn-secondary"
+                                            style={{
+                                                padding: '0.25rem 0.65rem',
+                                                fontSize: '0.8rem',
+                                                background: 'rgba(239, 68, 68, 0.1)',
+                                                color: 'var(--error)',
+                                                border: '1px solid rgba(239, 68, 68, 0.35)',
+                                                borderRadius: '20px',
+                                                cursor: 'pointer',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '0.35rem'
+                                            }}
+                                            onClick={() => handleOpenPayment(p)}
+                                            title="Clic para registrar pago"
+                                        >
+                                            ⏳ Pendiente
+                                        </button>
+                                    )}
+                                </td>
+                                <td>
+                                    {(() => {
+                                        const isPaid = p.payment_status === 'Pagó';
+                                        const paid = isPaid ? totalMandatory : (Number(p.payment_amount) || 0);
+                                        const debt = isPaid ? 0 : Math.max(0, totalMandatory - paid);
+                                        if (debt === 0) {
+                                            return (
+                                                <span style={{ color: 'var(--success)', fontWeight: 600, fontSize: '0.85rem' }}>
+                                                    Al día ($0)
+                                                </span>
+                                            );
+                                        }
+                                        return (
+                                            <span style={{
+                                                color: 'var(--error)',
+                                                fontWeight: 700,
+                                                fontSize: '0.85rem',
+                                                background: 'rgba(239, 68, 68, 0.1)',
+                                                padding: '0.25rem 0.6rem',
+                                                borderRadius: '6px',
+                                                border: '1px solid rgba(239, 68, 68, 0.25)',
+                                                display: 'inline-block'
+                                            }}>
+                                                Adeuda ${debt.toLocaleString()}
+                                            </span>
+                                        );
+                                    })()}
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                    <div style={{ display: 'inline-flex', gap: '0.35rem', alignItems: 'center' }}>
+                                        <button
+                                            className="btn btn-secondary"
+                                            style={{ padding: '0.35rem 0.6rem', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                            title="Registrar o editar pago"
+                                            onClick={() => handleOpenPayment(p)}
+                                        >
+                                            <DollarSign size={14} color="var(--success)" /> Pago
+                                        </button>
+                                        <button
+                                            className="btn btn-secondary"
+                                            style={{ padding: '0.4rem' }}
+                                            title="Más opciones"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (openMenuId === p.id) { setOpenMenuId(null); return; }
+                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                setMenuPos({ top: rect.bottom + 4, left: Math.max(8, rect.right - 190) });
+                                                setOpenMenuId(p.id);
+                                            }}
+                                        >
+                                            <MoreVertical size={16} />
+                                        </button>
+                                    </div>
                                     {openMenuId === p.id && createPortal(
                                         <>
                                             <div onClick={() => setOpenMenuId(null)} style={{ position: 'fixed', inset: 0, zIndex: 999 }} />
@@ -841,29 +1142,21 @@ const PlayersList = () => {
                                                     boxShadow: '0 10px 30px rgba(0,0,0,0.4)',
                                                 }}
                                             >
-                                                {isSuperAdmin ? (
-                                                    <button className="btn btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => { setOpenMenuId(null); handleViewCard(p); }}>
-                                                        <CreditCard size={14} /> Ver Tarjeta
-                                                    </button>
-                                                ) : (
-                                                    <>
-                                                        <button className="btn btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => { setOpenMenuId(null); handleOpenEdit(p); }}>
-                                                            <Edit2 size={14} /> Editar Datos
-                                                        </button>
-                                                        <button className="btn btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => { setOpenMenuId(null); handleOpenPayment(p); }}>
-                                                            <DollarSign size={14} /> Editar Pago
-                                                        </button>
-                                                        <button className="btn btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => { setOpenMenuId(null); viewHistory(p); }}>
-                                                            <History size={14} /> Ver Historial
-                                                        </button>
-                                                        <button className="btn btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => { setOpenMenuId(null); handleViewCard(p); }}>
-                                                            <CreditCard size={14} /> Ver Tarjeta
-                                                        </button>
-                                                        <button className="btn btn-secondary" style={{ justifyContent: 'flex-start', color: 'var(--error)' }} onClick={() => { setOpenMenuId(null); handleDelete(p.id); }}>
-                                                            <Trash2 size={14} /> Eliminar
-                                                        </button>
-                                                    </>
-                                                )}
+                                                <button className="btn btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => { setOpenMenuId(null); handleOpenEdit(p); }}>
+                                                    <Edit2 size={14} /> Editar Datos
+                                                </button>
+                                                <button className="btn btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => { setOpenMenuId(null); handleOpenPayment(p); }}>
+                                                    <DollarSign size={14} /> Editar Pago
+                                                </button>
+                                                <button className="btn btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => { setOpenMenuId(null); viewHistory(p); }}>
+                                                    <History size={14} /> Ver Historial
+                                                </button>
+                                                <button className="btn btn-secondary" style={{ justifyContent: 'flex-start' }} onClick={() => { setOpenMenuId(null); handleViewCard(p); }}>
+                                                    <CreditCard size={14} /> Ver Tarjeta
+                                                </button>
+                                                <button className="btn btn-secondary" style={{ justifyContent: 'flex-start', color: 'var(--error)' }} onClick={() => { setOpenMenuId(null); handleDelete(p.id, p.team_id); }}>
+                                                    <Trash2 size={14} /> Eliminar
+                                                </button>
                                             </div>
                                         </>,
                                         document.body
@@ -963,11 +1256,14 @@ const PlayersList = () => {
                                     <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--success)' }}>
                                         Monto total obligatorio: <strong>${totalMandatory.toLocaleString()}</strong>
                                     </p>
+                                    <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                        El jugador quedará totalmente al día ($0 saldo pendiente).
+                                    </p>
                                 </div>
                             )}
 
                             {paymentForm.status === 'Abonó' && (
-                                <div className="form-group animate-fade-in">
+                                <div className="form-group animate-fade-in" style={{ marginBottom: '1.5rem' }}>
                                     <label className="label">Monto Abonado ($)</label>
                                     <input
                                         type="number"
@@ -976,6 +1272,22 @@ const PlayersList = () => {
                                         onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
                                         required
                                     />
+                                    <div style={{ marginTop: '0.6rem', padding: '0.75rem', background: 'rgba(56, 189, 248, 0.08)', borderRadius: '8px', borderLeft: '3px solid var(--primary)', fontSize: '0.85rem' }}>
+                                        <div>Total Cuota: <strong>${totalMandatory.toLocaleString()}</strong></div>
+                                        <div style={{ marginTop: '0.25rem' }}>
+                                            Quedará adeudando: <strong style={{ color: 'var(--error)' }}>
+                                                ${Math.max(0, totalMandatory - (Number(paymentForm.amount) || 0)).toLocaleString()}
+                                            </strong>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {paymentForm.status === 'Pendiente' && (
+                                <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '0.75rem', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                                    <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--error)' }}>
+                                        El jugador mantendrá pago pendiente y adeudará: <strong>${totalMandatory.toLocaleString()}</strong>
+                                    </p>
                                 </div>
                             )}
 
@@ -983,6 +1295,89 @@ const PlayersList = () => {
                                 <Save size={18} /> Guardar Cambios
                             </button>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Tarifas y Costos del Equipo */}
+            {showCostsModal && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+                    background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)',
+                    display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
+                }}>
+                    <div className="glass" style={{ width: '90%', maxWidth: '520px', maxHeight: '85vh', overflowY: 'auto', padding: '2rem', position: 'relative' }}>
+                        <button
+                            onClick={() => setShowCostsModal(false)}
+                            style={{ position: 'absolute', right: '1.5rem', top: '1.5rem', background: 'none', border: 'none', color: 'var(--text)' }}
+                        >
+                            <X size={24} />
+                        </button>
+
+                        <h2 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <DollarSign size={22} color="var(--primary)" /> Tarifas y Costos del Equipo
+                        </h2>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                            Configura los conceptos obligatorios (Inscripción, Uniforme, Arbitraje, etc.). La suma determina la cuota oficial y cuánto adeuda cada jugador.
+                        </p>
+
+                        {/* Formulario Agregar Costo */}
+                        <form onSubmit={handleAddCost} style={{ marginBottom: '1.5rem', padding: '1rem', borderRadius: '10px', background: 'rgba(255, 255, 255, 0.03)', border: '1px dashed var(--glass-border)' }}>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.75rem' }}>+ Agregar Concepto de Cobro</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.5rem' }}>
+                                <input
+                                    type="text"
+                                    className="input"
+                                    placeholder="Concepto (ej: Inscripción)"
+                                    value={newCostItem.item_name}
+                                    onChange={(e) => setNewCostItem({ ...newCostItem, item_name: e.target.value })}
+                                    required
+                                />
+                                <input
+                                    type="number"
+                                    className="input"
+                                    placeholder="Valor ($)"
+                                    value={newCostItem.amount}
+                                    onChange={(e) => setNewCostItem({ ...newCostItem, amount: e.target.value })}
+                                    required
+                                />
+                                <button type="submit" className="btn btn-primary" style={{ padding: '0.5rem 0.8rem' }} title="Agregar concepto">
+                                    <Plus size={18} />
+                                </button>
+                            </div>
+                        </form>
+
+                        {/* Lista de Costos */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1.5rem' }}>
+                            {teamCosts.length === 0 ? (
+                                <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem 0', margin: 0 }}>
+                                    No hay conceptos de cobro registrados para este equipo.
+                                </p>
+                            ) : (
+                                teamCosts.map(cost => (
+                                    <div key={cost.id} className="glass" style={{ padding: '0.75rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: '8px' }}>
+                                        <div>
+                                            <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{cost.name}</div>
+                                            <div style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.9rem' }}>${Number(cost.amount).toLocaleString()}</div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeleteCost(cost.id)}
+                                            className="btn btn-secondary"
+                                            style={{ padding: '0.35rem 0.6rem' }}
+                                            title="Eliminar concepto"
+                                        >
+                                            <Trash2 size={14} color="var(--error)" />
+                                        </button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
+                        <div style={{ padding: '1rem', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '8px', borderLeft: '4px solid var(--primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Cuota Obligatoria Total:</span>
+                            <span style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--primary)' }}>${totalMandatory.toLocaleString()}</span>
+                        </div>
                     </div>
                 </div>
             )}

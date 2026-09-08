@@ -34,7 +34,7 @@ db = SQLAlchemy(app)
 
 # Upload Configuration
 UPLOAD_FOLDER = 'uploads'
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'ico', 'pdf'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'ico', 'pdf', 'webp', 'svg'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32 MB max upload limit
 
@@ -1453,14 +1453,22 @@ def list_players():
 @app.route('/api/players/<int:p_id>', methods=['PUT'])
 def update_player(p_id):
     team_id = request.headers.get('X-Team-ID')
-    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    user_role = request.headers.get('X-User-Role')
     
     data = request.json
     try:
         # Check if player exists and belongs to team
         curr = db.session.execute(text("SELECT team_id, uniform_number, full_name FROM players WHERE id = :id"), {"id": p_id}).fetchone()
-        if not curr or str(curr[0]) != str(team_id):
-            return jsonify({"error": "Player not found or unauthorized"}), 404
+        if not curr:
+            return jsonify({"error": "Player not found"}), 404
+        
+        player_team_id = curr[0]
+        if user_role == 'superadmin':
+            effective_team_id = team_id or player_team_id
+        else:
+            if not team_id or str(player_team_id) != str(team_id):
+                return jsonify({"error": "Unauthorized"}), 401
+            effective_team_id = team_id
         
         old_uniform = curr[1]
         new_uniform = sanitize_int(data.get('uniform_number'))
@@ -1470,14 +1478,14 @@ def update_player(p_id):
             # Check if new number is available
             avail = db.session.execute(
                 text("SELECT is_available FROM uniform_numbers WHERE team_id = :team AND number = :n"),
-                {"team": team_id, "n": new_uniform}
+                {"team": effective_team_id, "n": new_uniform}
             ).fetchone()
             if not avail or not avail[0]:
                 return jsonify({"error": f"El número {new_uniform} no está disponible"}), 400
             
             # Swap
-            db.session.execute(text("UPDATE uniform_numbers SET is_available = TRUE WHERE team_id = :team AND number = :n"), {"team": team_id, "n": old_uniform})
-            db.session.execute(text("UPDATE uniform_numbers SET is_available = FALSE WHERE team_id = :team AND number = :n"), {"team": team_id, "n": new_uniform})
+            db.session.execute(text("UPDATE uniform_numbers SET is_available = TRUE WHERE team_id = :team AND number = :n"), {"team": effective_team_id, "n": old_uniform})
+            db.session.execute(text("UPDATE uniform_numbers SET is_available = FALSE WHERE team_id = :team AND number = :n"), {"team": effective_team_id, "n": new_uniform})
 
         # Full profile fields (Parte A): first/last name drive full_name when provided
         first_name = data.get('first_name')
@@ -1508,12 +1516,12 @@ def update_player(p_id):
                 "p3": sanitize_int(data.get('tertiary_position_id')),
                 "preferred_foot": data.get('preferred_foot'), "blood_type": data.get('blood_type'),
                 "nationality": data.get('nationality'),
-                "id": p_id, "team": team_id
+                "id": p_id, "team": effective_team_id
             }
         )
 
         db.session.commit()
-        log_activity(team_id, "EDIT_PLAYER", f"Information updated for player: {curr[2]} (ID: {p_id})")
+        log_activity(effective_team_id, "EDIT_PLAYER", f"Information updated for player: {curr[2]} (ID: {p_id})")
 
         # Provision player self-service login (Parte F.2) — idempotent upsert, isolated
         # from the profile save above: username (document_number) is only guaranteed
@@ -1528,7 +1536,7 @@ def update_player(p_id):
                     db.session.execute(
                         text("""INSERT INTO users (username, password_hash, role, team_id, player_id, must_change_password)
                              VALUES (:u, :hp, 'player', :team, :pid, 1)"""),
-                        {"u": doc_number, "hp": hp, "team": team_id, "pid": p_id}
+                        {"u": doc_number, "hp": hp, "team": effective_team_id, "pid": p_id}
                     )
                 else:
                     db.session.execute(text("UPDATE users SET username = :u WHERE player_id = :pid"), {"u": doc_number, "pid": p_id})
@@ -1546,29 +1554,46 @@ def update_player(p_id):
 @app.route('/api/players/<int:p_id>', methods=['DELETE'])
 def delete_player(p_id):
     team_id = request.headers.get('X-Team-ID')
-    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    user_role = request.headers.get('X-User-Role')
     
-    player = db.session.execute(text("SELECT uniform_number FROM players WHERE id = :id AND team_id = :team"), {"id": p_id, "team": team_id}).fetchone()
-    if player:
-        unif = player[0]
-        db.session.execute(text("UPDATE uniform_numbers SET is_available = TRUE WHERE team_id = :team AND number = :n"), {"team": team_id, "n": unif})
-        db.session.execute(text("DELETE FROM players WHERE id = :id AND team_id = :team"), {"id": p_id, "team": team_id})
-        db.session.commit()
-        log_activity(team_id, "DELETE_PLAYER", f"Deleted player ID: {p_id}")
-        return jsonify({"message": "Player deleted"})
-    return jsonify({"error": "Player not found"}), 404
+    player = db.session.execute(text("SELECT team_id, uniform_number FROM players WHERE id = :id"), {"id": p_id}).fetchone()
+    if not player:
+        return jsonify({"error": "Player not found"}), 404
+        
+    player_team_id = player[0]
+    if user_role == 'superadmin':
+        effective_team_id = team_id or player_team_id
+    else:
+        if not team_id or str(player_team_id) != str(team_id):
+            return jsonify({"error": "Unauthorized"}), 401
+        effective_team_id = team_id
+
+    unif = player[1]
+    db.session.execute(text("UPDATE uniform_numbers SET is_available = TRUE WHERE team_id = :team AND number = :n"), {"team": effective_team_id, "n": unif})
+    db.session.execute(text("DELETE FROM players WHERE id = :id AND team_id = :team"), {"id": p_id, "team": effective_team_id})
+    db.session.commit()
+    log_activity(effective_team_id, "DELETE_PLAYER", f"Deleted player ID: {p_id}")
+    return jsonify({"message": "Player deleted"})
 
 @app.route('/api/players/<int:p_id>/history', methods=['GET'])
 def get_player_history(p_id):
     team_id = request.headers.get('X-Team-ID')
-    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    user_role = request.headers.get('X-User-Role')
     
-    player = db.session.execute(text("SELECT document_number FROM players WHERE id = :id AND team_id = :team"), {"id": p_id, "team": team_id}).fetchone()
+    player = db.session.execute(text("SELECT team_id, document_number FROM players WHERE id = :id"), {"id": p_id}).fetchone()
     if not player: return jsonify({"error": "Player not found"}), 404
+    
+    player_team_id = player[0]
+    if user_role == 'superadmin':
+        effective_team_id = team_id or player_team_id
+    else:
+        if not team_id or str(player_team_id) != str(team_id):
+            return jsonify({"error": "Unauthorized"}), 401
+        effective_team_id = team_id
     
     result = db.session.execute(
         text("SELECT * FROM player_history WHERE team_id = :team AND document_number = :doc ORDER BY registered_date DESC"),
-        {"team": team_id, "doc": player[0]}
+        {"team": effective_team_id, "doc": player[1]}
     )
     columns = result.keys()
     history = [dict(zip(columns, row)) for row in result]
@@ -1616,9 +1641,18 @@ def row_to_card_data(row, columns):
 @app.route('/api/players/<int:p_id>/card-data', methods=['GET'])
 def get_player_card_data(p_id):
     team_id = request.headers.get('X-Team-ID')
-    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    user_role = request.headers.get('X-User-Role')
 
-    result = db.session.execute(text(CARD_DATA_SQL + " WHERE p.id = :id AND p.team_id = :team"), {"id": p_id, "team": team_id})
+    if user_role == 'superadmin':
+        player = db.session.execute(text("SELECT team_id FROM players WHERE id = :id"), {"id": p_id}).fetchone()
+        if not player:
+            return jsonify({"error": "Player not found"}), 404
+        effective_team_id = team_id or player[0]
+    else:
+        if not team_id: return jsonify({"error": "Unauthorized"}), 401
+        effective_team_id = team_id
+
+    result = db.session.execute(text(CARD_DATA_SQL + " WHERE p.id = :id AND p.team_id = :team"), {"id": p_id, "team": effective_team_id})
     row = result.fetchone()
     if not row:
         return jsonify({"error": "Player not found"}), 404
@@ -1627,7 +1661,8 @@ def get_player_card_data(p_id):
 @app.route('/api/teams/<int:team_id>/players/card-data', methods=['GET'])
 def get_team_card_data(team_id):
     header_team = request.headers.get('X-Team-ID')
-    if not header_team or str(header_team) != str(team_id):
+    user_role = request.headers.get('X-User-Role')
+    if user_role != 'superadmin' and (not header_team or str(header_team) != str(team_id)):
         return jsonify({"error": "Unauthorized"}), 401
 
     result = db.session.execute(text(CARD_DATA_SQL + " WHERE p.team_id = :team ORDER BY p.uniform_number ASC"), {"team": team_id})
@@ -1637,7 +1672,19 @@ def get_team_card_data(team_id):
 @app.route('/api/players/<int:p_id>/payment', methods=['PATCH'])
 def update_payment(p_id):
     team_id = request.headers.get('X-Team-ID')
-    if not team_id: return jsonify({"error": "Unauthorized"}), 401
+    user_role = request.headers.get('X-User-Role')
+
+    player = db.session.execute(text("SELECT team_id FROM players WHERE id = :id"), {"id": p_id}).fetchone()
+    if not player: return jsonify({"error": "Player not found"}), 404
+    
+    player_team_id = player[0]
+    if user_role == 'superadmin':
+        effective_team_id = team_id or player_team_id
+    else:
+        if not team_id or str(player_team_id) != str(team_id):
+            return jsonify({"error": "Unauthorized"}), 401
+        effective_team_id = team_id
+
     try:
         data = request.json
         status = data.get('payment_status')
@@ -1645,10 +1692,10 @@ def update_payment(p_id):
         
         db.session.execute(
             text("UPDATE players SET payment_status = :status, payment_amount = :amount WHERE id = :id AND team_id = :team"),
-            {"status": status, "amount": amount, "id": p_id, "team": team_id}
+            {"status": status, "amount": amount, "id": p_id, "team": effective_team_id}
         )
         db.session.commit()
-        log_activity(team_id, "UPDATE_PAYMENT", f"Updated payment for player ID {p_id} to {status} (${amount})")
+        log_activity(effective_team_id, "UPDATE_PAYMENT", f"Updated payment for player ID {p_id} to {status} (${amount})")
         return jsonify({"message": "Payment updated successfully"}), 200
     except Exception as e:
         db.session.rollback()
@@ -3321,13 +3368,13 @@ def get_settings():
     team_id = request.headers.get('X-Team-ID')
     if not team_id: return jsonify({"error": "Unauthorized"}), 401
     sql = """
-        SELECT s.team_id, s.team_name, s.team_logo_url, s.favicon_url, s.updated_at, t.registration_pin 
+        SELECT s.team_id, s.team_name, s.team_logo_url, s.favicon_url, s.updated_at, t.registration_pin, t.slug 
         FROM settings s JOIN teams t ON s.team_id = t.id 
         WHERE s.team_id = :team
     """
     row = db.session.execute(text(sql), {"team": team_id}).fetchone()
     if row:
-        cols = ['team_id', 'team_name', 'team_logo_url', 'favicon_url', 'updated_at', 'registration_pin']
+        cols = ['team_id', 'team_name', 'team_logo_url', 'favicon_url', 'updated_at', 'registration_pin', 'slug']
         return jsonify(dict(zip(cols, row)))
     return jsonify({"error": "Settings not found"}), 404
 
@@ -3444,47 +3491,94 @@ def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 def _process_player_photo(p_id, team_id, file):
-    """Guarda el original y el recorte (rembg) de la foto de un jugador. Devuelve (response_dict, status_code)."""
-    if 'file' not in request.files:
+    """Guarda el original y el recorte (rembg) de la foto de un jugador con timeout de seguridad."""
+    if not file:
         return {"error": "No file part"}, 400
     if file.filename == '' or not allowed_file(file.filename):
         return {"error": "File type not allowed"}, 400
 
     ts = int(datetime.now().timestamp())
-    orig_filename = f"player_{p_id}_{ts}_orig.png"
+    orig_filename = f"player_{p_id}_{ts}_orig.jpg"
     cutout_filename = f"player_{p_id}_{ts}_cutout.png"
 
-    from PIL import Image
+    from PIL import Image, ImageOps
     import io
+    import concurrent.futures
+
     image_bytes = file.read()
     try:
-        original_img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+        original_img = Image.open(io.BytesIO(image_bytes))
+        # Corregir orientación según metadata EXIF (clave para fotos tomadas con móviles)
+        original_img = ImageOps.exif_transpose(original_img)
+        original_img = original_img.convert('RGB')
     except Exception:
         return {"error": "Archivo de imagen inválido"}, 400
-    original_img.save(os.path.join(app.config['UPLOAD_FOLDER'], orig_filename), format='PNG')
+
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+    # Redimensionar si excede dimensiones web para rapidez
+    max_orig_dim = 1200
+    if original_img.width > max_orig_dim or original_img.height > max_orig_dim:
+        original_img.thumbnail((max_orig_dim, max_orig_dim), Image.Resampling.LANCZOS)
+
+    orig_path = os.path.join(app.config['UPLOAD_FOLDER'], orig_filename)
+    original_img.save(orig_path, format='JPEG', quality=85, optimize=True)
     photo_url = f"/api/uploads/{orig_filename}"
 
-    photo_cutout_url = None
+    # Guardar INMEDIATAMENTE en base de datos para asegurar que nunca se pierda la foto
     try:
-        from rembg import remove
-        cutout_bytes = remove(image_bytes)
-        with open(os.path.join(app.config['UPLOAD_FOLDER'], cutout_filename), 'wb') as f:
+        db.session.execute(
+            text("UPDATE players SET photo_url = :orig WHERE id = :id AND team_id = :team"),
+            {"orig": photo_url, "id": p_id, "team": team_id}
+        )
+        db.session.commit()
+    except Exception as dbe:
+        db.session.rollback()
+        print(f"⚠️ Error actualizando photo_url en BD para jugador {p_id}: {dbe}")
+
+    photo_cutout_url = None
+    # Intento de remoción de fondo con miniatura y timeout de 8 segundos
+    try:
+        thumb_img = original_img.copy()
+        if thumb_img.width > 600 or thumb_img.height > 600:
+            thumb_img.thumbnail((600, 600), Image.Resampling.BILINEAR)
+
+        thumb_buf = io.BytesIO()
+        thumb_img.save(thumb_buf, format='PNG')
+        thumb_bytes = thumb_buf.getvalue()
+
+        def do_rembg():
+            from rembg import remove
+            return remove(thumb_bytes)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(do_rembg)
+            cutout_bytes = future.result(timeout=8)
+
+        cutout_path = os.path.join(app.config['UPLOAD_FOLDER'], cutout_filename)
+        with open(cutout_path, 'wb') as f:
             f.write(cutout_bytes)
         photo_cutout_url = f"/api/uploads/{cutout_filename}"
+
+        db.session.execute(
+            text("UPDATE players SET photo_cutout_url = :cutout WHERE id = :id AND team_id = :team"),
+            {"cutout": photo_cutout_url, "id": p_id, "team": team_id}
+        )
+        db.session.commit()
+    except concurrent.futures.TimeoutError:
+        print(f"⚠️ rembg tardó más de 8s para jugador {p_id}, continuando con foto original.")
     except Exception as e:
         print(f"⚠️ Background removal failed for player {p_id}: {e}")
 
-    db.session.execute(
-        text("UPDATE players SET photo_url = :orig, photo_cutout_url = :cutout WHERE id = :id AND team_id = :team"),
-        {"orig": photo_url, "cutout": photo_cutout_url, "id": p_id, "team": team_id}
-    )
-    db.session.commit()
-    log_activity(team_id, "UPLOAD_PHOTO", f"Photo uploaded for player ID: {p_id}")
+    try:
+        log_activity(team_id, "UPLOAD_PHOTO", f"Photo uploaded for player ID: {p_id}")
+    except Exception:
+        pass
 
     if photo_cutout_url is None:
         return {
             "photo_url": photo_url, "photo_cutout_url": None,
-            "warning": "La foto se guardó, pero no se pudo quitar el fondo automáticamente."
+            "warning": "La foto se guardó con éxito. El recorte automático se omitió para evitar demoras."
         }, 200
     return {"photo_url": photo_url, "photo_cutout_url": photo_cutout_url}, 200
 

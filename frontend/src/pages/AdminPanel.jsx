@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, PieChart, Activity, RefreshCcw, LogOut, Edit2, Save, X, DollarSign, Palette, Settings, Users, Trophy, Search, ExternalLink, Shield, FileSpreadsheet } from 'lucide-react';
+import { Plus, Trash2, PieChart, Activity, RefreshCcw, LogOut, Edit2, Save, X, DollarSign, Palette, Settings, Users, Trophy, Search, ExternalLink, Shield, FileSpreadsheet, Copy, Check } from 'lucide-react';
 import { adminService, positionService, settingsService, costService, tournamentService } from '../services/api';
 import { useNotification } from '../context/NotificationContext';
+import { compressImage } from '../utils/imageCompressor';
 
 const AdminPanel = () => {
     const navigate = useNavigate();
@@ -57,9 +58,10 @@ const AdminPanel = () => {
     const [lookupLoading, setLookupLoading] = useState(false);
     const [editingTournamentId, setEditingTournamentId] = useState(null);
 
-    const loadData = async () => {
+    const loadData = async (targetTeamId) => {
         setLoading(true);
         try {
+            let activeTeamId = targetTeamId || viewingTeamId || localStorage.getItem('adminTeamId') || localStorage.getItem('viewingTeamId');
             if (adminRole === 'superadmin') {
                 const [teamsRes, tournamentsRes] = await Promise.all([
                     adminService.getTeams(),
@@ -67,17 +69,20 @@ const AdminPanel = () => {
                 ]);
                 setTeams(teamsRes.data);
                 setTournaments(tournamentsRes.data);
+                if (!activeTeamId && teamsRes.data.length > 0) {
+                    activeTeamId = teamsRes.data[0].id;
+                }
             }
 
-            // Only load team-specific data if there is a team associated
-            const teamId = localStorage.getItem('adminTeamId');
-            if (teamId) {
+            if (activeTeamId) {
+                setViewingTeamId(activeTeamId);
+                localStorage.setItem('viewingTeamId', activeTeamId);
                 const [statsRes, logsRes, posRes, settingsRes, costsRes] = await Promise.all([
-                    adminService.getStats(),
-                    adminService.getLogs(),
-                    positionService.getAll(),
-                    settingsService.get(),
-                    costService.getAll()
+                    adminService.getStats(activeTeamId),
+                    adminService.getLogs(activeTeamId),
+                    positionService.getAll(activeTeamId),
+                    settingsService.get(activeTeamId),
+                    costService.getAll(activeTeamId)
                 ]);
                 setStats(statsRes.data);
                 setLogs(logsRes.data);
@@ -100,11 +105,12 @@ const AdminPanel = () => {
     const handleAddPosition = async (e) => {
         e.preventDefault();
         if (!newPosition) return;
+        const activeTeamId = viewingTeamId || localStorage.getItem('adminTeamId');
         try {
-            await positionService.create(newPosition);
+            await positionService.create(newPosition, activeTeamId);
             setNewPosition('');
             showNotification('Posición creada con éxito', 'success');
-            loadData();
+            loadData(activeTeamId);
         } catch (err) {
             showNotification('Error al crear posición', 'error');
         }
@@ -122,12 +128,13 @@ const AdminPanel = () => {
 
     const handleSaveEdit = async (id) => {
         if (!editingName) return;
+        const activeTeamId = viewingTeamId || localStorage.getItem('adminTeamId');
         try {
-            await positionService.update(id, editingName);
+            await positionService.update(id, editingName, activeTeamId);
             setEditingId(null);
             setEditingName('');
             showNotification('Posición actualizada', 'success');
-            loadData();
+            loadData(activeTeamId);
         } catch (err) {
             showNotification('Error al actualizar posición', 'error');
         }
@@ -140,10 +147,11 @@ const AdminPanel = () => {
             type: 'warning'
         });
         if (confirmed) {
+            const activeTeamId = viewingTeamId || localStorage.getItem('adminTeamId');
             try {
-                await positionService.delete(id);
+                await positionService.delete(id, activeTeamId);
                 showNotification('Posición eliminada', 'success');
-                loadData();
+                loadData(activeTeamId);
             } catch (err) {
                 showNotification('No se puede eliminar: Probablemente hay jugadores asignados a esta posición.', 'warning');
             }
@@ -157,15 +165,16 @@ const AdminPanel = () => {
 
     const handleUpdateSettings = async (e) => {
         e.preventDefault();
+        const activeTeamId = viewingTeamId || localStorage.getItem('adminTeamId');
         try {
             await settingsService.update({
                 team_name: settings.team_name,
                 team_logo_url: settings.team_logo_url,
                 favicon_url: settings.favicon_url,
                 registration_pin: settings.registration_pin
-            });
+            }, activeTeamId);
             showNotification('Identidad del equipo actualizada con éxito', 'success');
-            loadData();
+            loadData(activeTeamId);
         } catch (err) {
             showNotification('Error al actualizar la configuración', 'error');
             console.error('Error updating settings', err);
@@ -359,11 +368,12 @@ const AdminPanel = () => {
 
         setUploading(true);
         try {
-            const res = await settingsService.uploadLogo(file);
-            setSettings({ ...settings, team_logo_url: res.data.url });
+            const compressed = await compressImage(file, 800, 800, 0.9);
+            const res = await settingsService.uploadLogo(compressed);
+            setSettings(prev => ({ ...prev, team_logo_url: res.data.url }));
             showNotification('Logo cargado con éxito. Recuerda guardar los cambios.', 'info');
         } catch (err) {
-            showNotification('Error al subir el logo', 'error');
+            showNotification(err.response?.data?.error || 'Error al subir el logo', 'error');
         } finally {
             setUploading(false);
         }
@@ -376,10 +386,10 @@ const AdminPanel = () => {
         setUploading(true);
         try {
             const res = await settingsService.uploadLogo(file);
-            setSettings({ ...settings, favicon_url: res.data.url });
+            setSettings(prev => ({ ...prev, favicon_url: res.data.url }));
             showNotification('Favicon cargado con éxito. Recuerda guardar los cambios.', 'info');
         } catch (err) {
-            showNotification('Error al subir el favicon', 'error');
+            showNotification(err.response?.data?.error || 'Error al subir el favicon', 'error');
         } finally {
             setUploading(false);
         }
@@ -388,8 +398,9 @@ const AdminPanel = () => {
     const handleAddCost = async () => {
         if (!newCost.item_name || !newCost.amount) return;
         try {
-            await costService.create(newCost);
-            const res = await costService.getAll();
+            const teamId = viewingTeamId || localStorage.getItem('adminTeamId');
+            await costService.create(newCost, teamId);
+            const res = await costService.getAll(teamId);
             setCosts(res.data);
             setNewCost({ item_name: '', amount: '', is_mandatory: true });
             showNotification('Costo añadido correctamente', 'success');
@@ -425,7 +436,8 @@ const AdminPanel = () => {
         });
         if (!confirmed) return;
         try {
-            await costService.delete(id);
+            const teamId = viewingTeamId || localStorage.getItem('adminTeamId');
+            await costService.delete(id, teamId);
             setCosts(costs.filter(c => c.id !== id));
             showNotification('Costo eliminado', 'success');
         } catch (err) {
@@ -449,10 +461,11 @@ const AdminPanel = () => {
     const handleSaveEditCost = async (id) => {
         if (!editingCostName || !editingCostAmount) return;
         try {
-            await costService.update(id, { item_name: editingCostName, amount: editingCostAmount });
+            const teamId = viewingTeamId || localStorage.getItem('adminTeamId');
+            await costService.update(id, { item_name: editingCostName, amount: editingCostAmount }, teamId);
             setEditingCostId(null);
             showNotification('Costo actualizado correctamente', 'success');
-            loadData();
+            loadData(teamId);
         } catch (err) {
             showNotification('Error al actualizar costo', 'error');
             console.error('Error updating cost', err);
@@ -500,24 +513,24 @@ const AdminPanel = () => {
             ) : (
                 <>
                     {/* Tabs Navigation */}
-                    <div className="tabs-container">
-                            {adminRole === 'superadmin' && (
-                                <>
-                                    <button 
-                                        className={`tab ${activeTab === 'teams' ? 'active' : ''}`}
-                                        onClick={() => setActiveTab('teams')}
-                                    >
-                                        <Users size={18} /> Equipos
-                                    </button>
-                                    <button 
-                                        className={`tab ${activeTab === 'tournaments' ? 'active' : ''}`}
-                                        onClick={() => setActiveTab('tournaments')}
-                                    >
-                                        <Trophy size={18} /> Torneos
-                                    </button>
-                                </>
-                            )}
-                        {localStorage.getItem('adminTeamId') && (
+                    <div className="tabs-container" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                        {adminRole === 'superadmin' && (
+                            <>
+                                <button 
+                                    className={`tab ${activeTab === 'teams' ? 'active' : ''}`}
+                                    onClick={() => setActiveTab('teams')}
+                                >
+                                    <Users size={18} /> Equipos
+                                </button>
+                                <button 
+                                    className={`tab ${activeTab === 'tournaments' ? 'active' : ''}`}
+                                    onClick={() => setActiveTab('tournaments')}
+                                >
+                                    <Trophy size={18} /> Torneos
+                                </button>
+                            </>
+                        )}
+                        {(localStorage.getItem('adminTeamId') || adminRole === 'superadmin') && (
                             <>
                                 <button
                                     className={`btn ${activeTab === 'stats' ? 'btn-primary' : 'btn-secondary'}`}
@@ -538,9 +551,30 @@ const AdminPanel = () => {
                                     onClick={() => setActiveTab('branding')}
                                     style={{ whiteSpace: 'nowrap' }}
                                 >
-                                    <Palette size={18} /> Personalización
+                                    <Palette size={18} /> Personalización y Tarifas
                                 </button>
                             </>
+                        )}
+
+                        {adminRole === 'superadmin' && teams.length > 0 && ['stats', 'finances', 'branding'].includes(activeTab) && (
+                            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,255,255,0.05)', padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Equipo:</span>
+                                <select 
+                                    className="input" 
+                                    style={{ padding: '0.25rem 0.5rem', fontSize: '0.85rem', width: 'auto' }}
+                                    value={viewingTeamId || ''}
+                                    onChange={(e) => {
+                                        const tid = e.target.value;
+                                        setViewingTeamId(tid);
+                                        localStorage.setItem('viewingTeamId', tid);
+                                        loadData(tid);
+                                    }}
+                                >
+                                    {teams.map(t => (
+                                        <option key={t.id} value={t.id}>{t.name}</option>
+                                    ))}
+                                </select>
+                            </div>
                         )}
                     </div>
 
@@ -690,6 +724,14 @@ const AdminPanel = () => {
                                                                 title="Ver lista de jugadores"
                                                             >
                                                                 <Users size={13} /> Jugadores
+                                                            </button>
+                                                            <button 
+                                                                className="btn btn-secondary" 
+                                                                style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem', color: 'var(--success)' }} 
+                                                                onClick={() => navigate(`/players?teamId=${team.id}`)}
+                                                                title="Ver estado de pagos y deudas de este equipo"
+                                                            >
+                                                                <DollarSign size={13} /> Finanzas
                                                             </button>
                                                             <button 
                                                                 className="btn btn-secondary" 
@@ -1227,6 +1269,18 @@ const AdminPanel = () => {
                                     <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Meta final de recaudo</div>
                                 </div>
                             </div>
+                            <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
+                                <button 
+                                    className="btn btn-primary"
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', fontSize: '0.95rem' }}
+                                    onClick={() => {
+                                        const tid = viewingTeamId || localStorage.getItem('adminTeamId');
+                                        navigate(tid ? `/players?teamId=${tid}` : '/players');
+                                    }}
+                                >
+                                    <Users size={18} /> Ver Cartera Detallada y Pagos de Jugadores
+                                </button>
+                            </div>
                         </div>
                     )}
 
@@ -1236,12 +1290,47 @@ const AdminPanel = () => {
                                 <div className="grid-form" style={{ gap: '2rem' }}>
                                     <div>
                                         <h3 style={{ marginBottom: '0.5rem' }}>Identidad del Equipo</h3>
-                                        <div style={{ padding: '1rem', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '8px', borderLeft: '4px solid var(--primary)', marginBottom: '1.5rem' }}>
-                                            <strong style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--primary)' }}>🔗 Link de Inscripción de Jugadores:</strong>
-                                            <code style={{ fontSize: '1rem' }}>
-                                                http://localhost:3000/{localStorage.getItem('adminTeamSlug') || '...'}/registro
-                                            </code>
-                                        </div>
+                                        {(() => {
+                                            const activeSlug = settings?.slug || localStorage.getItem('adminTeamSlug') || (teams.find(t => t.id === (viewingTeamId || localStorage.getItem('adminTeamId')))?.slug) || 'equipo';
+                                            const registrationUrl = `${window.location.origin}/${activeSlug}/registro`;
+                                            return (
+                                                <div style={{ padding: '1rem 1.25rem', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '10px', borderLeft: '4px solid var(--primary)', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                                                    <div>
+                                                        <strong style={{ display: 'block', marginBottom: '0.35rem', color: 'var(--primary)' }}>🔗 Link de Inscripción de Jugadores:</strong>
+                                                        <a 
+                                                            href={registrationUrl} 
+                                                            target="_blank" 
+                                                            rel="noopener noreferrer" 
+                                                            style={{ fontSize: '0.95rem', color: 'var(--text-main)', textDecoration: 'underline', wordBreak: 'break-all' }}
+                                                        >
+                                                            {registrationUrl}
+                                                        </a>
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                        <button 
+                                                            type="button"
+                                                            className="btn btn-secondary"
+                                                            style={{ fontSize: '0.85rem', padding: '0.4rem 0.8rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+                                                            onClick={() => {
+                                                                navigator.clipboard.writeText(registrationUrl);
+                                                                showNotification('¡Enlace copiado al portapapeles!', 'success');
+                                                            }}
+                                                        >
+                                                            <Copy size={15} /> Copiar Link
+                                                        </button>
+                                                        <a 
+                                                            href={registrationUrl} 
+                                                            target="_blank" 
+                                                            rel="noopener noreferrer" 
+                                                            className="btn btn-primary"
+                                                            style={{ fontSize: '0.85rem', padding: '0.4rem 0.8rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+                                                        >
+                                                            <ExternalLink size={15} /> Abrir
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                         <div className="form-group">
                                             <label className="label">Nombre del Equipo</label>
                                             <input
@@ -1429,7 +1518,18 @@ const AdminPanel = () => {
                                     }}
                                     title="Cargar planilla en Excel"
                                 >
-                                    <FileSpreadsheet size={14} color="var(--success)" /> Carga Masiva Excel
+                                    <FileSpreadsheet size={14} color="var(--success)" /> Excel
+                                </button>
+                                <button 
+                                    className="btn btn-secondary"
+                                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.7rem', display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--success)' }}
+                                    onClick={() => {
+                                        setShowPlayersModal(false);
+                                        navigate(`/players?teamId=${viewingTeamId}`);
+                                    }}
+                                    title="Gestionar pagos y cartera del equipo"
+                                >
+                                    <DollarSign size={14} /> Finanzas
                                 </button>
                                 <button 
                                     className="btn btn-primary"
@@ -1453,6 +1553,7 @@ const AdminPanel = () => {
                                             <th>#</th>
                                             <th>Nombre</th>
                                             <th>Posición</th>
+                                            <th>Estado Pago</th>
                                             <th style={{ textAlign: 'right' }}>Acciones</th>
                                         </tr>
                                     </thead>
@@ -1462,6 +1563,21 @@ const AdminPanel = () => {
                                                 <td><span className="badge-id">{p.uniform_number}</span></td>
                                                 <td>{p.full_name}</td>
                                                 <td>{p.position}</td>
+                                                <td>
+                                                    {p.payment_status === 'Pagó' ? (
+                                                        <span className="badge" style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)', color: 'var(--success)', border: '1px solid var(--success)', fontSize: '0.75rem' }}>
+                                                            ✅ Pagó {p.payment_amount ? `($${Number(p.payment_amount).toLocaleString()})` : ''}
+                                                        </span>
+                                                    ) : p.payment_status === 'Abonó' ? (
+                                                        <span className="badge" style={{ backgroundColor: 'rgba(234, 179, 8, 0.15)', color: 'var(--warning)', border: '1px solid var(--warning)', fontSize: '0.75rem' }}>
+                                                            💰 Abonó (${Number(p.payment_amount || 0).toLocaleString()})
+                                                        </span>
+                                                    ) : (
+                                                        <span className="badge" style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: 'var(--error)', border: '1px solid var(--error)', fontSize: '0.75rem' }}>
+                                                            ⏳ Pendiente
+                                                        </span>
+                                                    )}
+                                                </td>
                                                 <td style={{ textAlign: 'right' }}>
                                                     <button 
                                                         className="btn-icon" 

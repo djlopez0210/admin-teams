@@ -3,11 +3,8 @@
  * Evita errores 413 (Request Entity Too Large), acelera la subida en móviles
  * y mejora el rendimiento del recorte de fondo con IA.
  */
-export async function compressImage(file, maxWidth = 1600, maxHeight = 1600, quality = 0.85) {
+export async function compressImage(file, maxWidth = 1200, maxHeight = 1200, quality = 0.82) {
     if (!file || !file.type.startsWith('image/')) return file;
-    
-    // Si el archivo ya es ligero (menor a 600 KB), no es necesario recomprimir
-    if (file.size <= 600 * 1024) return file;
 
     return new Promise((resolve) => {
         const reader = new FileReader();
@@ -18,6 +15,12 @@ export async function compressImage(file, maxWidth = 1600, maxHeight = 1600, qua
             img.onload = () => {
                 let width = img.width;
                 let height = img.height;
+
+                // Si ya es pequeño en peso (< 150 KB) y dimensiones, no recomprimir
+                if (file.size <= 150 * 1024 && width <= maxWidth && height <= maxHeight) {
+                    resolve(file);
+                    return;
+                }
 
                 if (width > maxWidth || height > maxHeight) {
                     if (width > height) {
