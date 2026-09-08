@@ -166,14 +166,25 @@ with app.app_context():
         existing_columns = db.session.execute(text("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_name = 'teams' AND table_schema = (SELECT DATABASE())")).fetchall()
         column_names = [row[0] for row in existing_columns]
         
-        for col, col_type in [('delegate_phone', 'VARCHAR(20)'), ('delegate_address', 'TEXT'), ('delegate_city', 'VARCHAR(100)')]:
+        team_cols = [
+            ('tournament_id', 'INT'),
+            ('delegate_document', 'VARCHAR(50)'),
+            ('delegate_name', 'VARCHAR(100)'),
+            ('delegate_email', 'VARCHAR(100)'),
+            ('delegate_phone', 'VARCHAR(20)'),
+            ('delegate_address', 'TEXT'),
+            ('delegate_city', 'VARCHAR(100)'),
+            ('registration_pin', 'VARCHAR(20)'),
+            ('logo_url', 'TEXT')
+        ]
+        for col, col_type in team_cols:
             if col not in column_names:
                 try:
                     db.session.execute(text(f"ALTER TABLE teams ADD COLUMN {col} {col_type}"))
                     db.session.commit()
-                    print(f"✅ Added missing column: {col}")
+                    print(f"✅ Added missing column to teams: {col}")
                 except Exception as ex:
-                    print(f"⚠️ Could not add column {col}: {ex}")
+                    print(f"⚠️ Could not add column {col} to teams: {ex}")
                     db.session.rollback()
         upgrades = [
             # Phases
@@ -192,9 +203,13 @@ with app.app_context():
             "ALTER TABLE referees ADD COLUMN age INT",
             "ALTER TABLE referees ADD COLUMN address VARCHAR(255)",
             # Teams
+            "ALTER TABLE teams ADD COLUMN tournament_id INT",
             "ALTER TABLE teams ADD COLUMN delegate_document VARCHAR(50)",
             "ALTER TABLE teams ADD COLUMN delegate_name VARCHAR(100)",
             "ALTER TABLE teams ADD COLUMN delegate_email VARCHAR(100)",
+            "ALTER TABLE teams ADD COLUMN delegate_phone VARCHAR(20)",
+            "ALTER TABLE teams ADD COLUMN delegate_address TEXT",
+            "ALTER TABLE teams ADD COLUMN delegate_city VARCHAR(100)",
             "ALTER TABLE teams ADD COLUMN registration_pin VARCHAR(20)",
             "ALTER TABLE teams ADD COLUMN logo_url TEXT",
             # Settings
@@ -225,6 +240,7 @@ with app.app_context():
             "ALTER TABLE players ADD COLUMN photo_url TEXT",
             "ALTER TABLE players ADD COLUMN photo_cutout_url TEXT",
             # Users (player self-service login)
+            "ALTER TABLE users ADD COLUMN tournament_id INT",
             "ALTER TABLE users ADD COLUMN player_id INT",
             "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT 0",
             # Matches
