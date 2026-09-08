@@ -785,37 +785,45 @@ const PlayersList = () => {
                                 <option key={t.id} value={t.id}>{t.name}</option>
                             ))}
                         </select>
-                    ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 1rem', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '8px', borderLeft: '4px solid var(--primary)', flexWrap: 'wrap' }}>
-                            <div>
-                                <span style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 600, display: 'block' }}>🔗 Enlace de inscripción pública:</span>
-                                <code style={{ fontSize: '0.85rem' }}>{`${window.location.origin}/${teamInfo?.slug || localStorage.getItem('adminTeamSlug') || '...'}/registro`}</code>
+                    ) : null}
+
+                    {(() => {
+                        const activeSlug = (isSuperAdmin && selectedTeamId 
+                            ? teams.find(t => String(t.id) === String(selectedTeamId))?.slug 
+                            : null) || localStorage.getItem('adminTeamSlug');
+                        if (!activeSlug) return null;
+                        const regUrl = `${window.location.origin}/${activeSlug}/registro`;
+                        return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 1rem', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '8px', borderLeft: '4px solid var(--primary)', flexWrap: 'wrap' }}>
+                                <div>
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 600, display: 'block' }}>🔗 Enlace de inscripción pública:</span>
+                                    <code style={{ fontSize: '0.85rem' }}>{regUrl}</code>
+                                </div>
+                                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                    <button 
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(regUrl);
+                                            showNotification('¡Enlace de inscripción copiado!', 'success');
+                                        }}
+                                    >
+                                        <Copy size={13} /> Copiar
+                                    </button>
+                                    <a 
+                                        href={regUrl} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer" 
+                                        className="btn btn-primary"
+                                        style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                    >
+                                        <ExternalLink size={13} /> Abrir
+                                    </a>
+                                </div>
                             </div>
-                            <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                <button 
-                                    type="button"
-                                    className="btn btn-secondary"
-                                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
-                                    onClick={() => {
-                                        const url = `${window.location.origin}/${teamInfo?.slug || localStorage.getItem('adminTeamSlug') || '...'}/registro`;
-                                        navigator.clipboard.writeText(url);
-                                        showNotification('¡Enlace de inscripción copiado!', 'success');
-                                    }}
-                                >
-                                    <Copy size={13} /> Copiar
-                                </button>
-                                <a 
-                                    href={`${window.location.origin}/${teamInfo?.slug || localStorage.getItem('adminTeamSlug') || '...'}/registro`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="btn btn-primary"
-                                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
-                                >
-                                    <ExternalLink size={13} /> Abrir
-                                </a>
-                            </div>
-                        </div>
-                    )}
+                        );
+                    })()}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-end' }}>
                     <div style={{ position: 'relative', width: '100%', maxWidth: '300px' }}>
