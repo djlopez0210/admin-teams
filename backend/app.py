@@ -3948,13 +3948,17 @@ def ensure_community_tables():
 @app.route('/api/communities', methods=['GET'])
 def list_communities():
     try:
+        user_id = request.headers.get('X-User-ID')
+        if not user_id:
+            return jsonify({"error": "No autorizado. Debe iniciar sesión."}), 401
+
         ensure_community_tables()
         sql = """
             SELECT c.id, c.name, c.slug, c.description, c.city, c.logo_url, c.cover_url,
                    c.is_active, c.created_at,
                    (SELECT COUNT(*) FROM community_players cp WHERE cp.community_id = c.id) as total_players,
                    (SELECT COUNT(*) FROM community_polls pol WHERE pol.community_id = c.id AND pol.is_active = 1) as active_polls,
-                   (SELECT COUNT(*) FROM community_matches m WHERE m.community_id = c.id) as total_matches
+                   (SELECT COUNT(*) FROM community_matches cm WHERE cm.community_id = c.id) as total_matches
             FROM communities c
             ORDER BY c.created_at DESC
         """
@@ -3982,6 +3986,14 @@ def list_communities():
 @app.route('/api/communities', methods=['POST'])
 def create_community():
     try:
+        user_id = request.headers.get('X-User-ID')
+        if not user_id:
+            return jsonify({"error": "Debe iniciar sesión como superadministrador para crear comunidades."}), 401
+
+        user = db.session.execute(text("SELECT id, role FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+        if not user or user[1] != 'superadmin':
+            return jsonify({"error": "Solo un superadministrador puede crear comunidades."}), 403
+
         ensure_community_tables()
         data = request.json or {}
         name = (data.get('name') or '').strip()
@@ -3995,7 +4007,7 @@ def create_community():
             slug = f"{base_slug}-{suffix}"
             suffix += 1
 
-        creator_id = request.headers.get('X-User-ID') or None
+        creator_id = user[0]
 
         res = db.session.execute(
             text("""
@@ -4022,13 +4034,17 @@ def create_community():
 @app.route('/api/communities/<int:comm_id>', methods=['GET'])
 def get_community(comm_id):
     try:
+        user_id = request.headers.get('X-User-ID')
+        if not user_id:
+            return jsonify({"error": "No autorizado. Debe iniciar sesión."}), 401
+
         sql = """
             SELECT c.id, c.name, c.slug, c.description, c.city, c.logo_url, c.cover_url,
                    c.is_active, c.created_at,
                    (SELECT COUNT(*) FROM community_players cp WHERE cp.community_id = c.id) as total_players,
                    (SELECT COUNT(*) FROM community_polls pol WHERE pol.community_id = c.id) as total_polls,
                    (SELECT COUNT(*) FROM community_polls pol WHERE pol.community_id = c.id AND pol.is_active = 1) as active_polls,
-                   (SELECT COUNT(*) FROM community_matches m WHERE m.community_id = c.id) as total_matches
+                   (SELECT COUNT(*) FROM community_matches cm WHERE cm.community_id = c.id) as total_matches
             FROM communities c
             WHERE c.id = :id
         """
@@ -4045,7 +4061,7 @@ def get_community(comm_id):
             "logo_url": row[5],
             "cover_url": row[6],
             "is_active": bool(row[7]),
-            "created_at": row[8].isoformat() if row[8] else None,
+            "created_at": str(row[8]),
             "total_players": row[9],
             "total_polls": row[10],
             "active_polls": row[11],
@@ -4057,6 +4073,14 @@ def get_community(comm_id):
 @app.route('/api/communities/<int:comm_id>', methods=['PUT'])
 def update_community(comm_id):
     try:
+        user_id = request.headers.get('X-User-ID')
+        if not user_id:
+            return jsonify({"error": "Debe iniciar sesión como superadministrador."}), 401
+
+        user = db.session.execute(text("SELECT id, role FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+        if not user or user[1] != 'superadmin':
+            return jsonify({"error": "Solo un superadministrador puede modificar la comunidad."}), 403
+
         data = request.json or {}
         name = (data.get('name') or '').strip()
         if not name:
@@ -4088,6 +4112,14 @@ def update_community(comm_id):
 @app.route('/api/communities/<int:comm_id>', methods=['DELETE'])
 def delete_community(comm_id):
     try:
+        user_id = request.headers.get('X-User-ID')
+        if not user_id:
+            return jsonify({"error": "Debe iniciar sesión como superadministrador."}), 401
+
+        user = db.session.execute(text("SELECT id, role FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+        if not user or user[1] != 'superadmin':
+            return jsonify({"error": "Solo un superadministrador puede eliminar la comunidad."}), 403
+
         db.session.execute(text("DELETE FROM community_match_roster WHERE match_id IN (SELECT id FROM community_matches WHERE community_id = :id)"), {"id": comm_id})
         db.session.execute(text("DELETE FROM community_matches WHERE community_id = :id"), {"id": comm_id})
         db.session.execute(text("DELETE FROM community_poll_votes WHERE poll_id IN (SELECT id FROM community_polls WHERE community_id = :id)"), {"id": comm_id})

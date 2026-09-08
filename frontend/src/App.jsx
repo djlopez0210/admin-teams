@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { NotificationProvider } from './context/NotificationContext'
-import { BrowserRouter as Router, Routes, Route, NavLink, Link } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, NavLink, Link, Navigate } from 'react-router-dom'
 import { UserPlus, Settings as SettingsIcon, Trophy, Image, Calendar, Sun, Moon, Users } from 'lucide-react'
 import RegisterPlayer from './pages/RegisterPlayer'
 import PlayersList from './pages/PlayersList'
@@ -17,7 +17,8 @@ import CommunityDetail from './pages/CommunityDetail'
 import ProtectedRoute from './components/ProtectedRoute'
 import { settingsService } from './services/api'
 import { useParams, useLocation } from 'react-router-dom'
-import { initActivityTracker, clearSession, getRoleDashboard } from './utils/session'
+import { initActivityTracker, clearSession, getRoleDashboard, isSessionValid } from './utils/session'
+import { updateFavicon, initThemeListener } from './utils/theme'
 
 // Applied once when the app loads, before the first paint, to avoid a flash of the wrong theme.
 if (localStorage.getItem('uiTheme') === 'dark') {
@@ -33,10 +34,11 @@ function TeamLayout({ children, isPublic = true }) {
     setIsDarkTheme(next);
     document.body.classList.toggle('theme-dark', next);
     localStorage.setItem('uiTheme', next ? 'dark' : 'light');
+    updateFavicon(settings.favicon_url || null);
   };
 
   const [settings, setSettings] = useState({
-    team_name: 'TeamManager',
+    team_name: 'ElOncePro',
     team_logo_url: '',
     favicon_url: ''
   });
@@ -99,19 +101,20 @@ function TeamLayout({ children, isPublic = true }) {
     setSettings(data);
     if (data.team_name) document.title = data.team_name;
     if (data.favicon_url) {
-      let link = document.querySelector("link[rel~='icon']") || document.createElement('link');
-      link.rel = 'icon';
-      link.href = data.favicon_url;
-      document.getElementsByTagName('head')[0].appendChild(link);
+      updateFavicon(data.favicon_url);
+    } else {
+      updateFavicon();
     }
   };
 
-  const role = localStorage.getItem('adminRole');
+  const isAuthenticated = isSessionValid();
+  const role = isAuthenticated ? localStorage.getItem('adminRole') : null;
 
   const getLogoDestination = () => {
     if (isPublic) {
       return teamSlug ? `/${teamSlug}` : '/';
     }
+    if (!isAuthenticated) return '/';
     return getRoleDashboard(role);
   };
 
@@ -143,6 +146,18 @@ function TeamLayout({ children, isPublic = true }) {
             <NavLink to={`/${teamSlug}`} className="nav-link">
               <UserPlus size={18} inline /> Registro
             </NavLink>
+          ) : !isAuthenticated ? (
+            <>
+              <NavLink to="/" className="nav-link">
+                Inicio
+              </NavLink>
+              <NavLink to="/communities" className="nav-link">
+                <Users size={18} inline /> Comunidades
+              </NavLink>
+              <Link to="/login" className="btn btn-primary" style={{ padding: '0.45rem 1rem', fontSize: '0.875rem' }}>
+                Ingresar
+              </Link>
+            </>
           ) : (
             <>
               {role !== 'veedor' && role !== 'tournament_admin' && role !== 'player' && (
@@ -211,6 +226,7 @@ function TeamLayout({ children, isPublic = true }) {
 
 function App() {
   useEffect(() => {
+    initThemeListener();
     return initActivityTracker();
   }, []);
 
@@ -272,19 +288,35 @@ function App() {
           {/* Communities Module (accessible with /communities and /comunidades) */}
           <Route 
             path="/communities" 
-            element={<TeamLayout isPublic={false}><CommunitiesList /></TeamLayout>} 
+            element={
+              <ProtectedRoute>
+                <TeamLayout isPublic={false}><CommunitiesList /></TeamLayout>
+              </ProtectedRoute>
+            } 
           />
           <Route 
             path="/comunidades" 
-            element={<TeamLayout isPublic={false}><CommunitiesList /></TeamLayout>} 
+            element={
+              <ProtectedRoute>
+                <TeamLayout isPublic={false}><CommunitiesList /></TeamLayout>
+              </ProtectedRoute>
+            } 
           />
           <Route 
             path="/communities/:communityId" 
-            element={<TeamLayout isPublic={false}><CommunityDetail /></TeamLayout>} 
+            element={
+              <ProtectedRoute>
+                <TeamLayout isPublic={false}><CommunityDetail /></TeamLayout>
+              </ProtectedRoute>
+            } 
           />
           <Route 
             path="/comunidades/:communityId" 
-            element={<TeamLayout isPublic={false}><CommunityDetail /></TeamLayout>} 
+            element={
+              <ProtectedRoute>
+                <TeamLayout isPublic={false}><CommunityDetail /></TeamLayout>
+              </ProtectedRoute>
+            } 
           />
           <Route 
             path="/player"
@@ -295,17 +327,33 @@ function App() {
             }
           />
 
-          {/* Public Tournament routes */}
-          <Route path="/:tournamentSlug">
-            <Route index element={<TournamentLanding />} />
+          {/* Tournament routes */}
+          <Route 
+            path="/:tournamentSlug"
+            element={
+              <ProtectedRoute>
+                <TournamentLanding />
+              </ProtectedRoute>
+            }
+          >
             <Route path="stats" element={<TournamentLanding />} />
           </Route>
 
           {/* Direct Team Registration Route */}
-          <Route path="/:teamSlug/registro" element={<TeamLayout isPublic={true}><RegisterPlayer /></TeamLayout>} />
+          <Route 
+            path="/:teamSlug/registro" 
+            element={
+              <ProtectedRoute>
+                <TeamLayout isPublic={false}><RegisterPlayer /></TeamLayout>
+              </ProtectedRoute>
+            } 
+          />
 
           {/* Landing Page (Root) */}
           <Route path="/" element={<LandingPage />} />
+
+          {/* Catch-all: Redirect unknown routes to home */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Router>
     </NotificationProvider>

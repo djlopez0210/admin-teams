@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { Users, Plus, Search, MapPin, BarChart3, Calendar, Shield, ArrowRight, X } from 'lucide-react';
 import { communityService } from '../services/api';
 import { useNotification } from '../context/NotificationContext';
+import { isSessionValid } from '../utils/session';
 
 const CommunitiesList = () => {
     const navigate = useNavigate();
     const { showNotification } = useNotification();
+    const isSuperAdmin = isSessionValid() && localStorage.getItem('adminRole') === 'superadmin';
     const [communities, setCommunities] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -39,6 +41,10 @@ const CommunitiesList = () => {
 
     const handleCreateSubmit = async (e) => {
         e.preventDefault();
+        if (!isSuperAdmin) {
+            showNotification('Solo un superadministrador puede crear comunidades', 'warning');
+            return;
+        }
         if (!newComm.name.trim()) {
             showNotification('El nombre de la comunidad es obligatorio', 'warning');
             return;
@@ -95,13 +101,15 @@ const CommunitiesList = () => {
                     </p>
                 </div>
 
-                <button
-                    className="btn btn-primary"
-                    onClick={() => setShowCreateModal(true)}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-                >
-                    <Plus size={18} /> Nueva Comunidad
-                </button>
+                {isSuperAdmin && (
+                    <button
+                        className="btn btn-primary"
+                        onClick={() => setShowCreateModal(true)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                    >
+                        <Plus size={18} /> Nueva Comunidad
+                    </button>
+                )}
             </div>
 
             {/* Search Bar */}
@@ -142,11 +150,17 @@ const CommunitiesList = () => {
                     <Shield size={48} color="var(--text-muted)" style={{ marginBottom: '1rem', opacity: 0.5 }} />
                     <h3 style={{ color: 'var(--text)', marginBottom: '0.5rem' }}>No se encontraron comunidades</h3>
                     <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem', maxWidth: '400px', margin: '0 auto 1.5rem' }}>
-                        {searchTerm ? 'Intenta con otro término de búsqueda.' : 'Crea tu primera comunidad de fútbol para comenzar a organizar jugadores, encuestas y partidos.'}
+                        {searchTerm 
+                            ? 'Intenta con otro término de búsqueda.' 
+                            : isSuperAdmin 
+                                ? 'Crea la primera comunidad de fútbol para comenzar a organizar jugadores, encuestas y partidos.' 
+                                : 'Aún no hay comunidades registradas.'}
                     </p>
-                    <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
-                        <Plus size={18} /> Crear Comunidad
-                    </button>
+                    {isSuperAdmin && (
+                        <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
+                            <Plus size={18} /> Crear Comunidad
+                        </button>
+                    )}
                 </div>
             ) : (
                 <div style={{
@@ -300,7 +314,7 @@ const CommunitiesList = () => {
             )}
 
             {/* Modal Crear Comunidad */}
-            {showCreateModal && (
+            {isSuperAdmin && showCreateModal && (
                 <div style={{
                     position: 'fixed',
                     top: 0,

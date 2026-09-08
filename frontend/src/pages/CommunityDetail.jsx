@@ -7,11 +7,13 @@ import {
 } from 'lucide-react';
 import { communityService, globalPlayerService } from '../services/api';
 import { useNotification } from '../context/NotificationContext';
+import { isSessionValid } from '../utils/session';
 
 const CommunityDetail = () => {
     const { communityId } = useParams();
     const navigate = useNavigate();
     const { showNotification } = useNotification();
+    const isSuperAdmin = isSessionValid() && localStorage.getItem('adminRole') === 'superadmin';
 
     const [activeTab, setActiveTab] = useState('players');
     const [community, setCommunity] = useState(null);
@@ -412,6 +414,10 @@ const CommunityDetail = () => {
     // --- SETTINGS LOGIC ---
     const handleSettingsSubmit = async (e) => {
         e.preventDefault();
+        if (!isSuperAdmin) {
+            showNotification('Solo un superadministrador puede modificar la comunidad', 'warning');
+            return;
+        }
         setSavingSettings(true);
         try {
             await communityService.update(communityId, editCommunityForm);
@@ -425,6 +431,10 @@ const CommunityDetail = () => {
     };
 
     const handleDeleteCommunity = async () => {
+        if (!isSuperAdmin) {
+            showNotification('Solo un superadministrador puede eliminar la comunidad', 'warning');
+            return;
+        }
         if (!window.confirm('¡ATENCIÓN! ¿Estás seguro de eliminar esta comunidad y todos sus datos relacionados (jugadores, encuestas, partidos)? Esta acción no se puede deshacer.')) return;
         try {
             await communityService.delete(communityId);
@@ -593,19 +603,21 @@ const CommunityDetail = () => {
                     <Calendar size={18} /> Encuentros Deportivos ({community.total_matches || 0})
                 </button>
 
-                <button
-                    onClick={() => setActiveTab('settings')}
-                    className="btn"
-                    style={{
-                        background: activeTab === 'settings' ? 'rgba(255,255,255,0.15)' : 'transparent',
-                        color: activeTab === 'settings' ? 'var(--text)' : 'var(--text-muted)',
-                        fontWeight: 700,
-                        gap: '0.5rem',
-                        marginLeft: 'auto'
-                    }}
-                >
-                    <SettingsIcon size={18} /> Configuración
-                </button>
+                {isSuperAdmin && (
+                    <button
+                        onClick={() => setActiveTab('settings')}
+                        className="btn"
+                        style={{
+                            background: activeTab === 'settings' ? 'rgba(255,255,255,0.15)' : 'transparent',
+                            color: activeTab === 'settings' ? 'var(--text)' : 'var(--text-muted)',
+                            fontWeight: 700,
+                            gap: '0.5rem',
+                            marginLeft: 'auto'
+                        }}
+                    >
+                        <SettingsIcon size={18} /> Configuración
+                    </button>
+                )}
             </div>
 
             {/* TAB 1: PLAYERS */}
@@ -1035,7 +1047,7 @@ const CommunityDetail = () => {
             )}
 
             {/* TAB 4: SETTINGS */}
-            {activeTab === 'settings' && (
+            {isSuperAdmin && activeTab === 'settings' && (
                 <div className="glass" style={{ padding: '2rem', maxWidth: '640px' }}>
                     <h2 style={{ margin: '0 0 1.5rem 0', fontSize: '1.4rem' }}>Configuración de la Comunidad</h2>
 

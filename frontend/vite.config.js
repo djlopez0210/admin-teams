@@ -8,11 +8,11 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'pwa-icon.png'],
+      includeAssets: ['favicon.ico', 'favicon.png', 'favicon-white.png', 'favicon-blue.png', 'apple-touch-icon.png', 'pwa-icon.png'],
       manifest: {
-        name: 'Administración de Equipos',
-        short_name: 'Admin-Teams',
-        description: 'Sistema de gestión de cobros y registro de jugadores',
+        name: 'ElOncePro - Gestión Deportiva',
+        short_name: 'ElOncePro',
+        description: 'Plataforma integral de torneos, equipos y comunidades de fútbol',
         theme_color: '#0f172a',
         icons: [
           {

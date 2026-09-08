@@ -11,9 +11,11 @@ api.interceptors.request.use(config => {
     const teamId = localStorage.getItem('adminTeamId');
     const tournamentId = localStorage.getItem('adminTournamentId');
     const userId = localStorage.getItem('adminUserId');
+    const role = localStorage.getItem('adminRole');
     if (teamId) config.headers['X-Team-ID'] = teamId;
     if (tournamentId) config.headers['X-Tournament-ID'] = tournamentId;
     if (userId) config.headers['X-User-ID'] = userId;
+    if (role) config.headers['X-User-Role'] = role;
     return config;
 });
 
