@@ -481,6 +481,165 @@ def send_team_welcome_email_async(to_email, delegate_name, team_name, slug, admi
     except Exception as e:
         print(f"Error starting email thread: {e}")
 
+def send_player_welcome_email(to_email, player_name, team_name, uniform_number, position_name, delegate_name=None, team_logo_url=None, tournament_name=None):
+    if not to_email or '@' not in str(to_email):
+        return
+
+    platform_name = "ElOncePro"
+    signer_name = (delegate_name or '').strip() or team_name
+    subject = f"⚽ ¡Bienvenido a {team_name}! Tu dorsal y ficha oficial están listos"
+
+    logo_html = ""
+    if team_logo_url:
+        logo_html = f'<img src="{team_logo_url}" alt="{team_name}" style="max-height: 80px; max-width: 140px; margin-bottom: 12px; object-fit: contain; border-radius: 8px;">'
+    else:
+        logo_html = '<div style="font-size: 44px; margin-bottom: 8px;">⚽</div>'
+
+    tournament_html = ""
+    tournament_plain = ""
+    if tournament_name:
+        tournament_html = f'''
+            <div style="margin-bottom: 10px; color: #475569; font-size: 14px;">
+                <strong style="color: #0f172a;">Competencia / Torneo:</strong> {tournament_name}
+            </div>
+        '''
+        tournament_plain = f"\nCompetencia / Torneo: {tournament_name}"
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{subject}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; margin: 0; padding: 24px;">
+    <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.07); border: 1px solid #e2e8f0;">
+        <div style="background: linear-gradient(135deg, #0b1329 0%, #1e293b 100%); padding: 36px 32px; text-align: center; color: #ffffff;">
+            {logo_html}
+            <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #00f2fe; letter-spacing: -0.5px;">¡Bienvenido a {team_name}!</h1>
+            <p style="margin: 8px 0 0 0; color: #94a3b8; font-size: 15px;">Tu dorsal y ficha oficial están listos</p>
+        </div>
+        <div style="padding: 32px; color: #334155; line-height: 1.6; font-size: 15px;">
+            <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin-bottom: 14px;">
+                ¡Hola, {player_name or 'Jugador'}!
+            </div>
+            <p style="margin: 0 0 24px 0; color: #334155; line-height: 1.6;">
+                ¡Nos alegra darte la bienvenida a la familia de <strong style="color: #0f172a;">{team_name}</strong>! A partir de hoy formas parte de nuestro equipo. Viviremos grandes experiencias y trabajaremos juntos por la victoria.
+            </p>
+
+            <!-- Card Ficha Oficial de Jugador (Sin documento) -->
+            <div style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border: 1px solid #cbd5e1; border-radius: 12px; padding: 22px; margin-bottom: 24px;">
+                <div style="font-size: 13px; font-weight: 700; text-transform: uppercase; color: #0284c7; letter-spacing: 0.5px; margin-bottom: 16px;">
+                    📋 Ficha Oficial de Jugador
+                </div>
+                
+                <div style="text-align: center; margin: 8px 0 20px 0;">
+                    <div style="display: inline-block; background: #0b1329; color: #00f2fe; font-size: 26px; font-weight: 900; padding: 8px 24px; border-radius: 10px; border: 2px solid #00f2fe; letter-spacing: 1px; box-shadow: 0 4px 12px rgba(0, 242, 254, 0.25);">
+                        DORSAL #{uniform_number or '-'}
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 10px; color: #475569; font-size: 14px;">
+                    <strong style="color: #0f172a;">Equipo:</strong> {team_name}
+                </div>
+                <div style="margin-bottom: 10px; color: #475569; font-size: 14px;">
+                    <strong style="color: #0f172a;">Posición en el campo:</strong> {position_name or 'Sin definir'}
+                </div>
+                {tournament_html}
+            </div>
+
+            <!-- Cierre y Firma Oficial -->
+            <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid #e2e8f0; line-height: 1.6;">
+                <p style="margin: 0 0 6px 0; font-weight: 600; color: #0f172a; font-size: 15px;">
+                    Prepárate para dar lo mejor de ti. ¡Nos vemos en la cancha!
+                </p>
+                <p style="margin: 0; color: #64748b; font-size: 14px;">
+                    Cuerpo Técnico y Directiva de <strong style="color: #0f172a;">{signer_name}</strong>
+                </p>
+            </div>
+        </div>
+        <div style="background: #f8fafc; padding: 20px 32px; text-align: center; color: #94a3b8; font-size: 13px; border-top: 1px solid #e2e8f0;">
+            Mensaje oficial generado por {platform_name} para {team_name}.<br>
+            ¡Muchos éxitos en la temporada!
+        </div>
+    </div>
+</body>
+</html>"""
+
+    plain_text = f"""¡Bienvenido a {team_name}!
+
+¡Hola, {player_name or 'Jugador'}!
+¡Nos alegra darte la bienvenida a la familia de {team_name}! A partir de hoy formas parte de nuestro equipo. Viviremos grandes experiencias y trabajaremos juntos por la victoria.
+
+--- FICHA OFICIAL DE JUGADOR ---
+Equipo: {team_name}
+Dorsal Asignado: #{uniform_number or '-'}
+Posición en el campo: {position_name or 'Sin definir'}{tournament_plain}
+
+Prepárate para dar lo mejor de ti. ¡Nos vemos en la cancha!
+Cuerpo Técnico y Directiva de {signer_name}
+
+Generado automáticamente por {platform_name}
+"""
+
+    smtp_host = os.getenv('SMTP_HOST', '').strip()
+    smtp_port = int(os.getenv('SMTP_PORT', '587'))
+    smtp_user = os.getenv('SMTP_USER', '').strip()
+    smtp_pass = os.getenv('SMTP_PASS', '').strip().replace(' ', '')
+    smtp_use_tls = os.getenv('SMTP_USE_TLS', 'true').lower() in ('true', '1', 'yes')
+    from_email = os.getenv('SMTP_FROM_EMAIL', smtp_user or 'noreply@eloncepro.com').strip()
+    from_name = os.getenv('SMTP_FROM_NAME', platform_name).strip()
+
+    if not smtp_host:
+        print("\n" + "="*62)
+        print("📬 [SIMULACIÓN ENVÍO DE CORREO] Bienvenida a Jugador")
+        print(f"Para: {to_email} ({player_name})")
+        print(f"Asunto: {subject}")
+        print(f"Equipo: {team_name} | Dorsal: #{uniform_number} | Posición: {position_name}")
+        if tournament_name:
+            print(f"Torneo: {tournament_name}")
+        print(f"Firma: Cuerpo Técnico y Directiva de {signer_name}")
+        print("="*62 + "\n")
+        return
+
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = Header(subject, 'utf-8')
+        msg['From'] = f"{from_name} <{from_email}>"
+        msg['To'] = to_email
+
+        msg.attach(MIMEText(plain_text, 'plain', 'utf-8'))
+        msg.attach(MIMEText(html_content, 'html', 'utf-8'))
+
+        if smtp_port == 465:
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15)
+        else:
+            server = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
+            if smtp_use_tls:
+                server.starttls()
+
+        if smtp_user and smtp_pass:
+            server.login(smtp_user, smtp_pass)
+
+        server.send_message(msg)
+        server.quit()
+        print(f"✅ Correo de bienvenida a jugador enviado exitosamente a {to_email}")
+    except Exception as ex:
+        print(f"⚠️ Error al enviar correo de bienvenida a jugador {to_email}: {ex}")
+
+def send_player_welcome_email_async(to_email, player_name, team_name, uniform_number, position_name, delegate_name=None, team_logo_url=None, tournament_name=None):
+    if not to_email or '@' not in str(to_email):
+        return
+    try:
+        t = threading.Thread(
+            target=send_player_welcome_email,
+            args=(to_email, player_name, team_name, uniform_number, position_name, delegate_name, team_logo_url, tournament_name),
+            daemon=True
+        )
+        t.start()
+    except Exception as e:
+        print(f"Error starting player email thread: {e}")
+
 def get_team_id_from_slug(slug):
     if not slug:
         return None
@@ -1140,6 +1299,48 @@ def register_player(team_slug):
         db.session.execute(text("UPDATE uniform_numbers SET is_available = FALSE WHERE team_id = :team AND number = :n"), {"team": team_id, "n": uniform_num})
         db.session.commit()
         log_activity(team_id, "REGISTER_PLAYER", f"Player {full_name} registered (Doc: {doc_str})")
+
+        # Enviar correo de bienvenida al jugador si tiene email registrado
+        try:
+            target_email = data.get('email') or email
+            if not target_email and player_id:
+                row_mail = db.session.execute(text("SELECT email FROM players WHERE id = :id"), {"id": player_id}).fetchone()
+                if row_mail and row_mail[0]:
+                    target_email = row_mail[0]
+
+            if target_email and '@' in str(target_email):
+                t_row = db.session.execute(
+                    text("""
+                        SELECT t.name, t.logo_url, t.delegate_name, tr.name as tournament_name
+                        FROM teams t
+                        LEFT JOIN tournaments tr ON t.tournament_id = tr.id
+                        WHERE t.id = :tid
+                    """),
+                    {"tid": team_id}
+                ).fetchone()
+
+                pos_name = "Sin definir"
+                if primary_pos_id:
+                    pos_row = db.session.execute(text("SELECT name FROM positions WHERE id = :pid"), {"pid": primary_pos_id}).fetchone()
+                    if pos_row and pos_row[0]:
+                        pos_name = pos_row[0]
+                elif data.get('position'):
+                    pos_name = data.get('position')
+
+                if t_row:
+                    send_player_welcome_email_async(
+                        to_email=str(target_email).strip(),
+                        player_name=full_name,
+                        team_name=t_row[0],
+                        uniform_number=uniform_num,
+                        position_name=pos_name,
+                        delegate_name=t_row[2],
+                        team_logo_url=t_row[1],
+                        tournament_name=t_row[3]
+                    )
+        except Exception as mail_err:
+            print(f"⚠️ Error preparando correo de bienvenida al jugador: {mail_err}")
+
         return jsonify({"message": "Player registered successfully", "player_id": player_id}), 201
     except Exception as e:
         db.session.rollback()
@@ -3831,6 +4032,41 @@ def enroll_player_in_team(team_id):
 
         db.session.commit()
         log_activity(team_id, "ENROLL_PLAYER", f"Player {full_name} enrolled from global base (Doc: {doc_str})")
+
+        # Enviar correo de bienvenida al jugador si tiene email registrado
+        try:
+            target_email = email or data.get('email')
+            if target_email and '@' in str(target_email):
+                t_row = db.session.execute(
+                    text("""
+                        SELECT t.name, t.logo_url, t.delegate_name, tr.name as tournament_name
+                        FROM teams t
+                        LEFT JOIN tournaments tr ON t.tournament_id = tr.id
+                        WHERE t.id = :tid
+                    """),
+                    {"tid": team_id}
+                ).fetchone()
+
+                pos_name = position or "Sin definir"
+                if primary_pos_id:
+                    pos_row = db.session.execute(text("SELECT name FROM positions WHERE id = :pid"), {"pid": primary_pos_id}).fetchone()
+                    if pos_row and pos_row[0]:
+                        pos_name = pos_row[0]
+
+                if t_row:
+                    send_player_welcome_email_async(
+                        to_email=str(target_email).strip(),
+                        player_name=full_name,
+                        team_name=t_row[0],
+                        uniform_number=uniform_num,
+                        position_name=pos_name,
+                        delegate_name=t_row[2],
+                        team_logo_url=t_row[1],
+                        tournament_name=t_row[3]
+                    )
+        except Exception as mail_err:
+            print(f"⚠️ Error preparando correo de bienvenida al jugador manual: {mail_err}")
+
         return jsonify({"message": "Jugador inscrito exitosamente en el equipo", "player_id": res.lastrowid}), 201
     except Exception as e:
         db.session.rollback()

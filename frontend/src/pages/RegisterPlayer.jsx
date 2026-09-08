@@ -17,6 +17,7 @@ const RegisterPlayer = () => {
         address: '',
         neighborhood: '',
         phone: '',
+        email: '',
         eps: '',
         uniform_size: 'M',
         uniform_number: '',
@@ -416,6 +417,17 @@ const RegisterPlayer = () => {
                                 <option key={idx} value={eps} />
                             ))}
                         </datalist>
+                    </div>
+
+                    <div className="form-group">
+                        <label className="label">Correo Electrónico (Email)</label>
+                        <input 
+                            type="email"
+                            className="input"
+                            value={formData.email || ''}
+                            onChange={(e) => setFormData({...formData, email: e.target.value})}
+                            placeholder="Ej: jugador@ejemplo.com"
+                        />
                     </div>
 
                     {/* Uniform */}
