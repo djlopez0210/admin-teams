@@ -1,28 +1,126 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { 
-    Trophy, 
-    ShieldCheck, 
-    Users, 
-    Sparkles, 
-    ChevronRight, 
-    LogIn, 
-    Sun, 
-    Moon, 
-    Camera, 
-    Calendar, 
-    CheckCircle2, 
-    BarChart3, 
+import {
+    Trophy,
+    ShieldCheck,
+    Users,
+    Sparkles,
+    ChevronRight,
+    LogIn,
+    Sun,
+    Moon,
+    Camera,
+    Calendar,
+    CheckCircle2,
+    BarChart3,
     Zap
 } from 'lucide-react';
 import { isSessionValid, getRoleDashboard } from '../utils/session';
 import { updateFavicon } from '../utils/theme';
+
+// Pilares mostrados en el navegador de arco semicircular de la landing.
+const PILLARS = [
+    {
+        icon: Trophy,
+        title: 'Gestión de Torneos & Ligas',
+        desc: 'Control absoluto de competiciones con calendario automatizado, fases de grupos y llaves de eliminación directa.',
+        items: [
+            ['Sorteo con Bolillero Virtual:', 'Animación de balotas en vivo para grupos transparentes.'],
+            ['Veedor Digital en Cancha:', 'Registro instantáneo de goles, amonestaciones y cronómetro.'],
+            ['Tablas Automáticas:', 'Posiciones, goleadores, valla menos vencida y Fair Play al instante.'],
+        ],
+    },
+    {
+        icon: ShieldCheck,
+        title: 'Administración de Equipos',
+        desc: 'Organiza la nómina de tu club, gestiona los uniformes y mantén la tesorería al día sin complicaciones.',
+        items: [
+            ['Inscripción Inteligente:', 'Búsqueda por cédula para evitar duplicidad de jugadores.'],
+            ['Control de Dorsales:', 'Numeración única por plantilla con verificación automática.'],
+            ['Finanzas y Cuotas:', 'Seguimiento claro de pagos, inscripciones y uniformes por jugador.'],
+        ],
+    },
+    {
+        icon: Camera,
+        title: 'Cromos Digitales con IA',
+        desc: 'Convierte a cada jugador en una estrella con cromos y carnets digitales de alta calidad visual.',
+        items: [
+            ['Recorte con Inteligencia Artificial:', 'Eliminación automática del fondo de la foto en 1 clic.'],
+            ['Captura Directa:', 'Toma fotos desde la cámara del celular o sube archivos desde la galería.'],
+            ['Editor de Plantillas & Exportación:', 'Personaliza escudos, colores y descarga en lote.'],
+        ],
+    },
+    {
+        icon: Users,
+        title: 'Comunidades & Encuentros',
+        desc: 'El espacio perfecto para coordinar partidos amistosos, convocatorias y vida deportiva comunitaria.',
+        items: [
+            ['Organización de Partidos:', 'Publica encuentros amistosos con fecha, cancha y cupos.'],
+            ['Encuestas y Votaciones:', 'Consulta horarios, indumentaria o confirmaciones en tiempo real.'],
+            ['Muro de Avisos:', 'Mantén informados a los miembros del club o barrio.'],
+        ],
+    },
+];
+
+// Geometría del arco: un nodo por pilar, distribuido sobre el semicírculo
+// `M 60 560 A 440 440 0 0 1 940 560` (viewBox 1000x575) del SVG de abajo.
+// CX/CY/RX/RY son ese mismo centro y radio expresados en % del contenedor.
+const ARC_DELTA = 51;
+const ARC_CX = 50;
+const ARC_CY = 97.391;
+const ARC_RX = 44;
+const ARC_RY = 76.522;
+
+function pillarOffset(index, active, total) {
+    const half = total / 2;
+    let diff = index - active;
+    while (diff > half) diff -= total;
+    while (diff <= -half) diff += total;
+    return diff;
+}
+
+function pillarNodePosition(offset) {
+    const angle = 90 - (offset - 0.5) * ARC_DELTA;
+    const rad = (angle * Math.PI) / 180;
+    return {
+        left: `${ARC_CX + ARC_RX * Math.cos(rad)}%`,
+        top: `${ARC_CY - ARC_RY * Math.sin(rad)}%`,
+    };
+}
 
 const LandingPage = () => {
     const navigate = useNavigate();
     const [isDarkTheme, setIsDarkTheme] = useState(() => document.body.classList.contains('theme-dark'));
     const isLoggedIn = isSessionValid();
     const role = localStorage.getItem('adminRole');
+
+    // Pilar activo en el arco (mueve los nodos al instante) vs. pilar mostrado
+    // en el panel (se actualiza tras el fade-out, para que el cambio de texto
+    // no se sienta abrupto mientras el arco todavía está girando).
+    const [activePillar, setActivePillar] = useState(0);
+    const [displayedPillar, setDisplayedPillar] = useState(0);
+    const [panelFading, setPanelFading] = useState(false);
+    const panelFadeTimeout = useRef(null);
+
+    useEffect(() => () => {
+        if (panelFadeTimeout.current) clearTimeout(panelFadeTimeout.current);
+    }, []);
+
+    const selectPillar = (index) => {
+        if (index === activePillar) return;
+        setActivePillar(index);
+        if (panelFadeTimeout.current) clearTimeout(panelFadeTimeout.current);
+        setPanelFading(true);
+        panelFadeTimeout.current = setTimeout(() => {
+            setDisplayedPillar(index);
+            setPanelFading(false);
+        }, 150);
+    };
+
+    const goToPillar = (index) => {
+        selectPillar(index);
+        scrollToSection('pilares');
+    };
 
     const toggleTheme = () => {
         const next = !isDarkTheme;
@@ -81,16 +179,16 @@ const LandingPage = () => {
                     </Link>
 
                     <nav className="landing-nav-menu">
-                        <a href="#torneos" onClick={(e) => { e.preventDefault(); scrollToSection('torneos'); }} className="landing-nav-item">
+                        <a href="#pilares" onClick={(e) => { e.preventDefault(); goToPillar(0); }} className="landing-nav-item">
                             Torneos
                         </a>
-                        <a href="#equipos" onClick={(e) => { e.preventDefault(); scrollToSection('equipos'); }} className="landing-nav-item">
+                        <a href="#pilares" onClick={(e) => { e.preventDefault(); goToPillar(1); }} className="landing-nav-item">
                             Equipos
                         </a>
-                        <a href="#cromos" onClick={(e) => { e.preventDefault(); scrollToSection('cromos'); }} className="landing-nav-item">
+                        <a href="#pilares" onClick={(e) => { e.preventDefault(); goToPillar(2); }} className="landing-nav-item">
                             Cromos & IA
                         </a>
-                        <a href="#comunidades" onClick={(e) => { e.preventDefault(); scrollToSection('comunidades'); }} className="landing-nav-item">
+                        <a href="#pilares" onClick={(e) => { e.preventDefault(); goToPillar(3); }} className="landing-nav-item">
                             Comunidades
                         </a>
                     </nav>
@@ -190,108 +288,67 @@ const LandingPage = () => {
                     </p>
                 </div>
 
-                {/* 4 Pillars Grid */}
-                <div className="landing-pillars-grid">
-                    {/* Pillar 1: Torneos & Ligas */}
-                    <div className="glass landing-pillar-card" id="torneos">
-                        <div className="landing-pillar-icon">
-                            <Trophy size={28} />
-                        </div>
-                        <h3 className="landing-pillar-title">Gestión de Torneos & Ligas</h3>
-                        <p className="landing-pillar-desc">
-                            Control absoluto de competiciones con calendario automatizado, fases de grupos y llaves de eliminación directa.
-                        </p>
-                        <ul className="landing-pillar-list">
-                            <li className="landing-pillar-item">
-                                <CheckCircle2 size={18} />
-                                <span><strong>Sorteo con Bolillero Virtual:</strong> Animación de balotas en vivo para grupos transparentes.</span>
-                            </li>
-                            <li className="landing-pillar-item">
-                                <CheckCircle2 size={18} />
-                                <span><strong>Veedor Digital en Cancha:</strong> Registro instantáneo de goles, amonestaciones y cronómetro.</span>
-                            </li>
-                            <li className="landing-pillar-item">
-                                <CheckCircle2 size={18} />
-                                <span><strong>Tablas Automáticas:</strong> Posiciones, goleadores, valla menos vencida y Fair Play al instante.</span>
-                            </li>
-                        </ul>
+                {/* Pillars Arc Navigator */}
+                <section className="landing-pillars-arc-shell" id="pilares">
+                    <div className="landing-pillars-arc-visual">
+                        <svg className="landing-arc-svg" viewBox="0 0 1000 575" preserveAspectRatio="xMidYMin meet">
+                            <defs>
+                                <linearGradient id="landingArcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                    <stop offset="0%" stopColor="var(--primary)" stopOpacity="0" />
+                                    <stop offset="50%" stopColor="var(--primary)" stopOpacity="1" />
+                                    <stop offset="100%" stopColor="var(--secondary)" stopOpacity="0" />
+                                </linearGradient>
+                            </defs>
+                            <path className="landing-arc-track" d="M 60 560 A 440 440 0 0 1 940 560" />
+                            <path className="landing-arc-glow" d="M 60 560 A 440 440 0 0 1 940 560" />
+                            <path className="landing-arc-progress" d="M 60 560 A 440 440 0 0 1 940 560" />
+                        </svg>
+                        {PILLARS.map((pillar, index) => {
+                            const offset = pillarOffset(index, activePillar, PILLARS.length);
+                            const pos = pillarNodePosition(offset);
+                            const isActive = index === activePillar;
+                            return (
+                                <button
+                                    key={pillar.title}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={isActive}
+                                    aria-label={`Ver ${pillar.title}`}
+                                    className={`landing-pillar-node${isActive ? ' active' : ''}`}
+                                    style={{ left: pos.left, top: pos.top }}
+                                    onClick={() => selectPillar(index)}
+                                >
+                                    <span className="landing-node-label">Pilar {index + 1}</span>
+                                    <span className="landing-node-circle">{index + 1}</span>
+                                </button>
+                            );
+                        })}
                     </div>
 
-                    {/* Pillar 2: Equipos & Jugadores */}
-                    <div className="glass landing-pillar-card" id="equipos">
-                        <div className="landing-pillar-icon">
-                            <ShieldCheck size={28} />
-                        </div>
-                        <h3 className="landing-pillar-title">Administración de Equipos</h3>
-                        <p className="landing-pillar-desc">
-                            Organiza la nómina de tu club, gestiona los uniformes y mantén la tesorería al día sin complicaciones.
-                        </p>
-                        <ul className="landing-pillar-list">
-                            <li className="landing-pillar-item">
-                                <CheckCircle2 size={18} />
-                                <span><strong>Inscripción Inteligente:</strong> Búsqueda por cédula para evitar duplicidad de jugadores.</span>
-                            </li>
-                            <li className="landing-pillar-item">
-                                <CheckCircle2 size={18} />
-                                <span><strong>Control de Dorsales:</strong> Numeración única por plantilla con verificación automática.</span>
-                            </li>
-                            <li className="landing-pillar-item">
-                                <CheckCircle2 size={18} />
-                                <span><strong>Finanzas y Cuotas:</strong> Seguimiento claro de pagos, inscripciones y uniformes por jugador.</span>
-                            </li>
-                        </ul>
-                    </div>
-
-                    {/* Pillar 3: Cromos & IA */}
-                    <div className="glass landing-pillar-card" id="cromos">
-                        <div className="landing-pillar-icon">
-                            <Camera size={28} />
-                        </div>
-                        <h3 className="landing-pillar-title">Cromos Digitales con IA</h3>
-                        <p className="landing-pillar-desc">
-                            Convierte a cada jugador en una estrella con cromos y carnets digitales de alta calidad visual.
-                        </p>
-                        <ul className="landing-pillar-list">
-                            <li className="landing-pillar-item">
-                                <CheckCircle2 size={18} />
-                                <span><strong>Recorte con Inteligencia Artificial:</strong> Eliminación automática del fondo de la foto en 1 clic.</span>
-                            </li>
-                            <li className="landing-pillar-item">
-                                <CheckCircle2 size={18} />
-                                <span><strong>Captura Directa:</strong> Toma fotos desde la cámara del celular o sube archivos desde la galería.</span>
-                            </li>
-                            <li className="landing-pillar-item">
-                                <CheckCircle2 size={18} />
-                                <span><strong>Editor de Plantillas & Exportación:</strong> Personaliza escudos, colores y descarga en lote.</span>
-                            </li>
-                        </ul>
-                    </div>
-
-                    {/* Pillar 4: Comunidades Deportivas */}
-                    <div className="glass landing-pillar-card" id="comunidades">
-                        <div className="landing-pillar-icon">
-                            <Users size={28} />
-                        </div>
-                        <h3 className="landing-pillar-title">Comunidades & Encuentros</h3>
-                        <p className="landing-pillar-desc">
-                            El espacio perfecto para coordinar partidos amistosos, convocatorias y vida deportiva comunitaria.
-                        </p>
-                        <ul className="landing-pillar-list">
-                            <li className="landing-pillar-item">
-                                <CheckCircle2 size={18} />
-                                <span><strong>Organización de Partidos:</strong> Publica encuentros amistosos con fecha, cancha y cupos.</span>
-                            </li>
-                            <li className="landing-pillar-item">
-                                <CheckCircle2 size={18} />
-                                <span><strong>Encuestas y Votaciones:</strong> Consulta horarios, indumentaria o confirmaciones en tiempo real.</span>
-                            </li>
-                            <li className="landing-pillar-item">
-                                <CheckCircle2 size={18} />
-                                <span><strong>Muro de Avisos:</strong> Mantén informados a los miembros del club o barrio.</span>
-                            </li>
-                        </ul>
-                    </div>
-                </div>
+                    {(() => {
+                        const pillar = PILLARS[displayedPillar];
+                        const Icon = pillar.icon;
+                        return (
+                            <div className="glass landing-pillars-panel">
+                                <div className={`landing-panel-body${panelFading ? ' fading' : ''}`}>
+                                    <div className="landing-pillar-icon">
+                                        <Icon size={28} />
+                                    </div>
+                                    <h3 className="landing-pillar-title">{pillar.title}</h3>
+                                    <p className="landing-pillar-desc">{pillar.desc}</p>
+                                    <ul className="landing-pillar-list">
+                                        {pillar.items.map(([lead, rest]) => (
+                                            <li className="landing-pillar-item" key={lead}>
+                                                <CheckCircle2 size={18} />
+                                                <span><strong>{lead}</strong> {rest}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            </div>
+                        );
+                    })()}
+                </section>
 
                 {/* Call to Action Banner */}
                 <section className="landing-cta">
@@ -338,10 +395,10 @@ const LandingPage = () => {
                     </div>
 
                     <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.9rem' }}>
-                        <a href="#torneos" onClick={(e) => { e.preventDefault(); scrollToSection('torneos'); }} className="landing-nav-item">Torneos</a>
-                        <a href="#equipos" onClick={(e) => { e.preventDefault(); scrollToSection('equipos'); }} className="landing-nav-item">Equipos</a>
-                        <a href="#cromos" onClick={(e) => { e.preventDefault(); scrollToSection('cromos'); }} className="landing-nav-item">Cromos & IA</a>
-                        <a href="#comunidades" onClick={(e) => { e.preventDefault(); scrollToSection('comunidades'); }} className="landing-nav-item">Comunidades</a>
+                        <a href="#pilares" onClick={(e) => { e.preventDefault(); goToPillar(0); }} className="landing-nav-item">Torneos</a>
+                        <a href="#pilares" onClick={(e) => { e.preventDefault(); goToPillar(1); }} className="landing-nav-item">Equipos</a>
+                        <a href="#pilares" onClick={(e) => { e.preventDefault(); goToPillar(2); }} className="landing-nav-item">Cromos & IA</a>
+                        <a href="#pilares" onClick={(e) => { e.preventDefault(); goToPillar(3); }} className="landing-nav-item">Comunidades</a>
                         <Link to={isLoggedIn ? getRoleDashboard(role) : "/login"} className="landing-nav-item">{isLoggedIn ? "Mi Panel" : "Iniciar Sesión"}</Link>
                     </div>
 

@@ -1048,26 +1048,141 @@ body.theme-dark .toast-warning, .theme-football .toast-warning { color: #fcd34d;
   line-height: 1.6;
 }
 
-.landing-pillars-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 2rem;
+/* Arc / semicircle pillar navigator */
+.landing-pillars-arc-shell {
+  width: 100%;
+  max-width: 760px;
+  margin: 1rem auto 0;
 }
 
-.landing-pillar-card {
-  padding: 2.5rem;
-  border-radius: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+/* holds the svg + numbered nodes; its aspect-ratio is what the node angle
+   math (RX/RY in LandingPage.jsx) is calibrated against */
+.landing-pillars-arc-visual {
   position: relative;
-  overflow: hidden;
+  width: 100%;
+  aspect-ratio: 2 / 1.15;
 }
 
-.landing-pillar-card:hover {
-  transform: translateY(-5px);
+.landing-arc-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.landing-arc-track { fill: none; stroke: var(--glass-border); stroke-width: 3; }
+
+.landing-arc-glow {
+  fill: none;
+  stroke: url(#landingArcGrad);
+  stroke-width: 12;
+  filter: blur(6px);
+  opacity: 0.18;
+}
+
+.landing-arc-progress {
+  fill: none;
+  stroke: url(#landingArcGrad);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.landing-pillar-node {
+  position: absolute;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  transition: left 0.8s cubic-bezier(0.4, 0, 0.2, 1), top 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.landing-pillar-node:focus-visible .landing-node-circle {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+}
+
+.landing-node-circle {
+  width: clamp(38px, 6vw, 56px);
+  height: clamp(38px, 6vw, 56px);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: clamp(0.85rem, 1.4vw, 1.05rem);
+  background: var(--glass);
+  border: 2px solid var(--glass-border);
+  color: var(--text-muted);
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.landing-pillar-node:hover .landing-node-circle {
+  transform: scale(1.1);
   border-color: var(--primary);
-  box-shadow: 0 16px 40px var(--shadow);
+}
+
+.landing-pillar-node.active .landing-node-circle {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  border-color: transparent;
+  color: var(--btn-text);
+  box-shadow: 0 0 22px var(--btn-glow), 0 0 50px var(--btn-glow);
+  transform: scale(1.22);
+  animation: landingNodePulse 2.6s ease-in-out infinite;
+}
+
+.landing-pillar-node.active:hover .landing-node-circle { transform: scale(1.26); }
+
+@keyframes landingNodePulse {
+  0%, 100% { box-shadow: 0 0 22px var(--btn-glow), 0 0 50px var(--btn-glow); }
+  50%      { box-shadow: 0 0 30px var(--btn-glow), 0 0 65px var(--btn-glow); }
+}
+
+.landing-node-label {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: clamp(0.6rem, 0.9vw, 0.7rem);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  transition: color 0.4s ease;
+}
+
+.landing-pillar-node.active .landing-node-label { color: var(--primary); }
+
+/* Panel: pulled up with a negative top margin so it nests inside the open
+   curve of the arc instead of trailing below it. Narrower than the arc so
+   it clears the two outer nodes, which sit low and near the edges. Stays
+   in normal flow (no absolute positioning) so nothing after it ever
+   overlaps, regardless of how tall the active pillar's content is. */
+.landing-pillars-panel {
+  position: relative;
+  z-index: 1;
+  width: min(420px, 64%);
+  margin: -22% auto 0;
+  padding: 1.75rem 1.9rem;
+}
+
+.landing-panel-body {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.landing-panel-body.fading {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-pillar-node { transition: none; }
+  .landing-pillar-node.active .landing-node-circle { animation: none; }
+  .landing-panel-body, .landing-panel-body.fading { transition: none; opacity: 1; transform: none; }
 }
 
 .landing-pillar-icon {
@@ -1185,9 +1300,6 @@ body.theme-dark .toast-warning, .theme-football .toast-warning { color: #fcd34d;
   .landing-metrics-grid {
     grid-template-columns: repeat(2, 1fr);
   }
-  .landing-pillars-grid {
-    grid-template-columns: 1fr;
-  }
   .landing-nav-menu {
     display: none;
   }
@@ -1202,6 +1314,11 @@ body.theme-dark .toast-warning, .theme-football .toast-warning { color: #fcd34d;
   }
   .landing-cta h2 {
     font-size: 2rem;
+  }
+  .landing-pillars-panel {
+    width: min(420px, 84%);
+    margin-top: -16%;
+    padding: 1.4rem 1.5rem;
   }
   .landing-footer-inner {
     flex-direction: column;
