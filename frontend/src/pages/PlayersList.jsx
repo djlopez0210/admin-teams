@@ -8,6 +8,7 @@ import { playerService, costService, positionService, uniformService, cardTempla
 import PlayerCard from '../components/PlayerCard';
 import CameraModal from '../components/CameraModal';
 import { compressImage } from '../utils/imageCompressor';
+import { useNotification } from '../context/NotificationContext';
 
 const BLOOD_TYPES = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
 
