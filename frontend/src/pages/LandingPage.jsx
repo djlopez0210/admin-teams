@@ -322,7 +322,7 @@ const LandingPage = () => {
                     </div>
 
                     <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                        &copy; {new Date().getFullYear()} ElOncePro. Todos los derechos reservados.
+                        &copy; {new Date().getFullYear()} Developed By DevjLopez. Todos los derechos reservados.
                     </div>
                 </div>
             </footer>
