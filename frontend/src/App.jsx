@@ -39,7 +39,7 @@ function TeamLayout({ children, isPublic = true }) {
 
   const [settings, setSettings] = useState({
     team_name: 'ElOncePro',
-    team_logo_url: '',
+    team_logo_url: '/logo-placeholder.png',
     favicon_url: ''
   });
 
@@ -134,10 +134,29 @@ function TeamLayout({ children, isPublic = true }) {
           }}
         >
           {settings.team_logo_url ? (
-            <img src={settings.team_logo_url} alt="Logo" style={{ height: '40px', width: '40px', objectFit: 'contain', borderRadius: '8px' }} />
+            <img 
+              src={settings.team_logo_url} 
+              alt="Logo" 
+              style={{ height: '40px', width: '40px', objectFit: 'contain', borderRadius: '8px' }} 
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+                const next = e.currentTarget.nextElementSibling;
+                if (next && next.tagName === 'svg') next.style.display = 'inline-block';
+              }}
+            />
           ) : (
-            <Trophy size={32} color="var(--primary)" />
+            <img 
+              src="/logo-placeholder.png" 
+              alt="Logo" 
+              style={{ height: '40px', width: '40px', objectFit: 'contain', borderRadius: '8px' }} 
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+                const next = e.currentTarget.nextElementSibling;
+                if (next && next.tagName === 'svg') next.style.display = 'inline-block';
+              }}
+            />
           )}
+          <Trophy size={32} color="var(--primary)" style={{ display: 'none' }} />
           <h2 style={{ margin: 0 }}>{settings.team_name}</h2>
         </Link>
         <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
@@ -217,8 +236,29 @@ function TeamLayout({ children, isPublic = true }) {
       <main className="container animate-fade-in">
         {children}
       </main>
-      <footer style={{ marginTop: 'auto', padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-        &copy; {new Date().getFullYear()} {settings.team_name}. Todos los derechos reservados.
+      <footer style={{ 
+        marginTop: 'auto', 
+        padding: '2rem 1rem', 
+        textAlign: 'center', 
+        color: 'var(--text-muted)', 
+        fontSize: '0.85rem',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '0.4rem',
+        flexWrap: 'wrap'
+      }}>
+        <span>&copy; {new Date().getFullYear()} TuOnce-pro. Todos los derechos reservados. Desarrollado por</span>
+        <img 
+          src="/devjlopez-logo.png" 
+          alt="DevJLopez" 
+          style={{ 
+            height: '24px', 
+            objectFit: 'contain', 
+            verticalAlign: 'middle',
+            filter: isDarkTheme ? 'brightness(1.5) drop-shadow(0 0 1px rgba(255,255,255,0.4))' : 'none'
+          }} 
+        />
       </footer>
     </>
   );

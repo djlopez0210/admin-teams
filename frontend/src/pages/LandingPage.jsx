@@ -46,12 +46,27 @@ const LandingPage = () => {
                 <header className="landing-header">
                 <div className="landing-header-inner">
                     <Link to="/" className="landing-brand">
+                        <img 
+                            src="/logo-placeholder.png" 
+                            alt="Logo ElOncePro" 
+                            style={{
+                                width: '44px',
+                                height: '44px',
+                                objectFit: 'contain',
+                                filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.15))'
+                            }}
+                            onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                                const fallback = e.currentTarget.nextElementSibling;
+                                if (fallback) fallback.style.display = 'flex';
+                            }}
+                        />
                         <div style={{
                             width: '42px',
                             height: '42px',
                             borderRadius: '12px',
                             background: 'linear-gradient(135deg, var(--secondary), var(--primary))',
-                            display: 'flex',
+                            display: 'none',
                             alignItems: 'center',
                             justifyContent: 'center',
                             color: '#ffffff',
@@ -308,7 +323,16 @@ const LandingPage = () => {
             <footer className="landing-footer">
                 <div className="landing-footer-inner">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <Trophy size={22} color="var(--primary)" />
+                        <img 
+                            src="/logo-placeholder.png" 
+                            alt="Logo ElOncePro" 
+                            style={{
+                                width: '32px',
+                                height: '32px',
+                                objectFit: 'contain'
+                            }}
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
                         <span style={{ fontWeight: 800, fontSize: '1.15rem' }}>ElOncePro</span>
                         <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>— Gestión Deportiva Integral</span>
                     </div>
@@ -321,8 +345,18 @@ const LandingPage = () => {
                         <Link to={isLoggedIn ? getRoleDashboard(role) : "/login"} className="landing-nav-item">{isLoggedIn ? "Mi Panel" : "Iniciar Sesión"}</Link>
                     </div>
 
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                        &copy; {new Date().getFullYear()} Developed By DevjLopez. Todos los derechos reservados.
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-muted)', fontSize: '0.85rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                        <span>&copy; {new Date().getFullYear()} TuOnce-pro. Todos los derechos reservados. Desarrollado por</span>
+                        <img 
+                            src="/devjlopez-logo.png" 
+                            alt="DevJLopez" 
+                            style={{ 
+                                height: '24px', 
+                                objectFit: 'contain', 
+                                verticalAlign: 'middle',
+                                filter: isDarkTheme ? 'brightness(1.5) drop-shadow(0 0 1px rgba(255,255,255,0.4))' : 'none'
+                            }} 
+                        />
                     </div>
                 </div>
             </footer>
