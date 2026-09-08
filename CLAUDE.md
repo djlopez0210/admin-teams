@@ -66,6 +66,20 @@ Nuevas columnas en `players`: `first_name`, `last_name`, `email`, `birth_date`, 
 
 ---
 
+## Sesión: Navegador de arco semicircular en la landing (sección "Pilares")
+
+Reemplazo de la grilla 2x2 de tarjetas de la sección "Potencia Cada Nivel de Tu Organización" (`frontend/src/pages/LandingPage.jsx`) por un navegador interactivo tipo semicírculo, inspirado en un componente visto en uniagustiniana.edu.co (línea de tiempo de plan de estudios): 4 nodos numerados sobre un arco SVG que, al hacer clic, "giran" (reposicionan vía transición CSS de `left`/`top`) y muestran el pilar correspondiente en un panel único anidado dentro del propio arco.
+
+- **Geometría del arco**: un solo `<path>` semicircular (`M 60 560 A 440 440 0 0 1 940 560`, viewBox `1000x575`) con degradado fijo (`--primary` → `--secondary`) que siempre brilla en el centro-arriba. Los nodos NO se mueven por keyframes de rotación — cada uno tiene un `offset` circular respecto al nodo activo (`pillarOffset` en `LandingPage.jsx`), ese offset define un ángulo (`90 - (offset - 0.5) * 51`), y el ángulo se convierte en `left`/`top` (%) vía trigonometría (`pillarNodePosition`). El efecto de "giro" es solo la transición CSS `left/top 0.8s` disparada por el cambio de posiciones.
+- **Panel anidado, no debajo**: el panel del pilar activo (`.landing-pillars-panel`) vive en flujo normal del documento pero con `margin-top` negativo (`-22%`, `-16%` en móvil) para "subirse" al hueco del semicírculo en vez de aparecer como bloque separado. Al no ser `position: absolute`, nunca se solapa con el contenido que sigue (el CTA), sin importar cuánto texto tenga cada pilar.
+- Los datos de los 4 pilares (antes 4 `<div>` fijos) ahora son un array `PILLARS` a nivel de módulo en `LandingPage.jsx`, reutilizando los mismos íconos de `lucide-react` (`Trophy`, `ShieldCheck`, `Camera`, `Users`) ya importados.
+- Los links de navegación (header y footer: Torneos/Equipos/Cromos & IA/Comunidades) apuntaban antes a un `id` distinto por tarjeta (`#torneos`, `#equipos`, etc.); al quedar una sola tarjeta visible a la vez, todos apuntan ahora a `#pilares` (id de la sección) y llaman a `goToPillar(i)`, que selecciona el pilar además de hacer scroll.
+- CSS nuevo en `frontend/src/styles/index.css`: `.landing-pillars-arc-*`, `.landing-pillar-node`, `.landing-node-circle`, `.landing-node-label`, `.landing-pillars-panel`, `.landing-panel-body` — usa las variables de tema existentes (`--primary`, `--secondary`, `--btn-glow`, `--glass-border`) para que respete claro/oscuro sin lógica adicional. Se eliminaron `.landing-pillars-grid` y `.landing-pillar-card` (ya no se usan).
+- Antes de tocar código de producción, se validó el mecanismo completo (geometría del arco, fórmula del ángulo, transición) en un artefacto de vista previa iterado con el usuario — no se adivinó el diseño.
+- **No probado**: accesibilidad con teclado más allá de `focus-visible` básico (no hay navegación por flechas entre nodos, solo clic/`Tab`+`Enter`).
+
+---
+
 ## Bugs preexistentes corregidos de paso
 
 Encontrados porque bloqueaban directamente el código que se estaba tocando:
