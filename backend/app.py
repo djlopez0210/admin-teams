@@ -336,6 +336,29 @@ def sanitize_int(val):
     try: return int(val)
     except: return None
 
+def normalize_birth_date(val):
+    """Convierte cualquier formato de fecha (incl. el Date de JS serializado como
+    'Sun, 02 Oct 1983 00:00:00 GMT') a 'YYYY-MM-DD' para la columna DATE de MySQL."""
+    if val is None or val == '':
+        return None
+    s = str(val).strip()
+    if re.match(r'^\d{4}-\d{1,2}-\d{1,2}$', s):
+        try:
+            return datetime.strptime(s, '%Y-%m-%d').strftime('%Y-%m-%d')
+        except Exception:
+            pass
+    try:
+        dt = datetime.strptime(s, '%a, %d %b %Y %H:%M:%S %Z')
+        return dt.strftime('%Y-%m-%d')
+    except Exception:
+        pass
+    try:
+        dt = datetime.strptime(s[:19], '%Y-%m-%dT%H:%M:%S')
+        return dt.strftime('%Y-%m-%d')
+    except Exception:
+        pass
+    return None
+
 # Helper function to Log Activity
 def log_activity(team_id, action, details=None):
     try:
@@ -1361,6 +1384,7 @@ def register_player(team_slug):
             last_name = last_name or (global_p[3] if global_p else None)
             email = data.get('email') or (global_p[4] if global_p else None)
             birth_date = data.get('birth_date') or (global_p[5].strftime('%Y-%m-%d') if global_p and global_p[5] else None)
+            birth_date = normalize_birth_date(birth_date)
             foot = data.get('preferred_foot') or (global_p[6] if global_p else None)
             blood = data.get('blood_type') or (global_p[7] if global_p else None)
             nat = data.get('nationality') or (global_p[8] if global_p else None)
@@ -1512,7 +1536,7 @@ def update_player(p_id):
                 "unif": new_uniform, "p1": sanitize_int(data.get('primary_position_id')),
                 "p2": sanitize_int(data.get('secondary_position_id')),
                 "first_name": first_name, "last_name": last_name, "email": data.get('email'),
-                "address": data.get('address'), "birth_date": data.get('birth_date') or None,
+                "address": data.get('address'), "birth_date": normalize_birth_date(data.get('birth_date')),
                 "p3": sanitize_int(data.get('tertiary_position_id')),
                 "preferred_foot": data.get('preferred_foot'), "blood_type": data.get('blood_type'),
                 "nationality": data.get('nationality'),
@@ -3553,7 +3577,7 @@ def _process_player_photo(p_id, team_id, file):
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(do_rembg)
-            cutout_bytes = future.result(timeout=8)
+            cutout_bytes = future.result(timeout=40)
 
         cutout_path = os.path.join(app.config['UPLOAD_FOLDER'], cutout_filename)
         with open(cutout_path, 'wb') as f:
@@ -4199,6 +4223,7 @@ def enroll_player_in_team(team_id):
         neighborhood = data.get('neighborhood') or (global_p[7] if global_p else None)
         eps = data.get('eps') or (global_p[8] if global_p else None)
         birth_date = data.get('birth_date') or (global_p[9].strftime('%Y-%m-%d') if global_p and global_p[9] else None)
+        birth_date = normalize_birth_date(birth_date)
         foot = data.get('preferred_foot') or (global_p[10] if global_p else None)
         blood = data.get('blood_type') or (global_p[11] if global_p else None)
         nationality = data.get('nationality') or (global_p[12] if global_p else None)
