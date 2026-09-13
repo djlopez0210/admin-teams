@@ -20,7 +20,7 @@ services:
     container_name: football-backend-prod
     restart: always
     ports:
-      - "5001:5000"
+      - "5001:5001"
     environment:
       DATABASE_URL: ${DATABASE_URL}
       FLASK_APP: ${FLASK_APP}

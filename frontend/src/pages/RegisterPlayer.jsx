@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Save, XCircle, CheckCircle, Info, Upload, Camera } from 'lucide-react';
+import { Search, Save, XCircle, CheckCircle, Info, Upload, Camera, Loader2 } from 'lucide-react';
 import { playerService, positionService, uniformService, settingsService, costService } from '../services/api';
 import { useParams } from 'react-router-dom';
 import { useNotification } from '../context/NotificationContext';
@@ -66,32 +66,39 @@ const RegisterPlayer = () => {
     const [pinInput, setPinInput] = useState('');
     const [pinError, setPinError] = useState('');
     const [validatingPin, setValidatingPin] = useState(false);
+    const [loadingData, setLoadingData] = useState(true);
 
     useEffect(() => {
         loadInitialData();
-    }, []);
+    }, [teamSlug]);
 
     const loadInitialData = async () => {
         if (!teamSlug) return;
+        setLoadingData(true);
         try {
-            const [posRes, numRes, settingsRes, costsRes, epsRes] = await Promise.all([
-                positionService.getAllByTeam(teamSlug),
-                uniformService.getAvailable(teamSlug),
-                settingsService.getPublic(teamSlug),
-                costService.getPublic(teamSlug),
-                playerService.getEps(teamSlug)
+            // 1. Obtener datos públicos y verificar si tiene PIN de forma prioritaria
+            const settingsRes = await settingsService.getPublic(teamSlug);
+            setTeamName(settingsRes.data.team_name || '');
+            setTeamLogo(settingsRes.data.team_logo_url || '');
+            setHasPin(Boolean(settingsRes.data.has_pin));
+
+            // 2. Cargar recursos de forma tolerante a fallos
+            const [posRes, numRes, costsRes, epsRes] = await Promise.all([
+                positionService.getAllByTeam(teamSlug).catch(() => ({ data: [] })),
+                uniformService.getAvailable(teamSlug).catch(() => ({ data: [] })),
+                costService.getPublic(teamSlug).catch(() => ({ data: [] })),
+                playerService.getEps(teamSlug).catch(() => ({ data: [] }))
             ]);
-            setPositions(posRes.data);
-            setAvailableNumbers(numRes.data);
-            setTeamName(settingsRes.data.team_name);
-            setTeamLogo(settingsRes.data.team_logo_url);
-            setHasPin(settingsRes.data.has_pin || false);
-            setCosts(costsRes.data);
-            setEpsList(epsRes.data);
+            setPositions(posRes.data || []);
+            setAvailableNumbers(numRes.data || []);
+            setCosts(costsRes.data || []);
+            setEpsList(epsRes.data || []);
         } catch (err) {
             showNotification('Error al cargar datos del equipo', 'error');
             console.error('Error loading data', err);
             setError('Error al cargar datos del servidor');
+        } finally {
+            setLoadingData(false);
         }
     };
 
@@ -254,6 +261,15 @@ const RegisterPlayer = () => {
         setCutoutPreview('');
         setPhotoWarning('');
     };
+
+    if (loadingData) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '1rem' }}>
+                <Loader2 className="animate-spin" size={48} color="var(--primary)" />
+                <p style={{ color: 'var(--text-muted)' }}>Cargando información del equipo...</p>
+            </div>
+        );
+    }
 
     if (hasPin && !pinValidated) {
         return (
