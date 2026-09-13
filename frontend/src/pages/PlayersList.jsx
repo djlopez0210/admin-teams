@@ -59,7 +59,7 @@ const PlayersList = () => {
     const [exportPlayerData, setExportPlayerData] = useState(null);
     const [cardScale, setCardScale] = useState(1);
     const [openMenuId, setOpenMenuId] = useState(null);
-    const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
+    const [menuPos, setMenuPos] = useState({ top: 'auto', bottom: 'auto', left: 0, maxHeight: 'none' });
     const [teams, setTeams] = useState([]);
     const [selectedTeamId, setSelectedTeamId] = useState('');
     const cardRef = useRef(null);
@@ -1132,7 +1132,19 @@ const PlayersList = () => {
                                                 e.stopPropagation();
                                                 if (openMenuId === p.id) { setOpenMenuId(null); return; }
                                                 const rect = e.currentTarget.getBoundingClientRect();
-                                                setMenuPos({ top: rect.bottom + 4, left: Math.max(8, rect.right - 190) });
+                                                const menuHeight = 230;
+                                                const spaceBelow = window.innerHeight - rect.bottom;
+                                                const spaceAbove = rect.top;
+                                                const openUpwards = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+
+                                                setMenuPos({
+                                                    top: openUpwards ? 'auto' : `${rect.bottom + 4}px`,
+                                                    bottom: openUpwards ? `${window.innerHeight - rect.top + 4}px` : 'auto',
+                                                    left: Math.max(8, Math.min(window.innerWidth - 200, rect.right - 190)),
+                                                    maxHeight: openUpwards
+                                                        ? `${Math.max(160, spaceAbove - 16)}px`
+                                                        : `${Math.max(160, spaceBelow - 16)}px`,
+                                                });
                                                 setOpenMenuId(p.id);
                                             }}
                                         >
@@ -1145,8 +1157,19 @@ const PlayersList = () => {
                                             <div
                                                 className="glass"
                                                 style={{
-                                                    position: 'fixed', top: menuPos.top, left: menuPos.left, zIndex: 1000,
-                                                    minWidth: '190px', padding: '0.4rem', display: 'flex', flexDirection: 'column', gap: '0.2rem',
+                                                    position: 'fixed',
+                                                    top: menuPos.top,
+                                                    bottom: menuPos.bottom,
+                                                    left: menuPos.left,
+                                                    maxHeight: menuPos.maxHeight || 'none',
+                                                    overflowY: 'auto',
+                                                    zIndex: 1000,
+                                                    minWidth: '190px',
+                                                    padding: '0.4rem',
+                                                    borderRadius: '0.75rem',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    gap: '0.2rem',
                                                     boxShadow: '0 10px 30px rgba(0,0,0,0.4)',
                                                 }}
                                             >
