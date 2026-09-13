@@ -45,7 +45,7 @@ with app.app_context():
     try:
         # Essential Tables (Baseline)
         db.session.execute(text("CREATE TABLE IF NOT EXISTS tournaments (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100), slug VARCHAR(100) UNIQUE, city VARCHAR(100), description TEXT, rules_pdf_url TEXT, registration_open BOOLEAN DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
-        db.session.execute(text("CREATE TABLE IF NOT EXISTS teams (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100), slug VARCHAR(100) UNIQUE, tournament_id INT, delegate_document VARCHAR(50), delegate_name VARCHAR(100), delegate_email VARCHAR(100), registration_pin VARCHAR(20), logo_url TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
+        db.session.execute(text("CREATE TABLE IF NOT EXISTS teams (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100), slug VARCHAR(100) UNIQUE, tournament_id INT, delegate_document VARCHAR(50), delegate_name VARCHAR(100), delegate_email VARCHAR(100), registration_pin VARCHAR(20), logo_url TEXT, uniform_min INT DEFAULT 1, uniform_max INT DEFAULT 99, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
         db.session.execute(text("CREATE TABLE IF NOT EXISTS referees (id INT AUTO_INCREMENT PRIMARY KEY, full_name VARCHAR(100), document_number VARCHAR(50) UNIQUE, phone VARCHAR(20), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
         db.session.execute(text("CREATE TABLE IF NOT EXISTS matches (id INT AUTO_INCREMENT PRIMARY KEY, tournament_id INT, match_date DATETIME, home_team_id INT, away_team_id INT, referee_id INT, veedor_id INT, location VARCHAR(255), status VARCHAR(50) DEFAULT 'SCHEDULED', home_score INT DEFAULT 0, away_score INT DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
         db.session.execute(text("CREATE TABLE IF NOT EXISTS players (id INT AUTO_INCREMENT PRIMARY KEY, team_id INT, full_name VARCHAR(100), document_number VARCHAR(50) UNIQUE, uniform_number INT, position VARCHAR(50), payment_status VARCHAR(50) DEFAULT 'Pendiente', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
@@ -176,7 +176,9 @@ with app.app_context():
             ('delegate_address', 'TEXT'),
             ('delegate_city', 'VARCHAR(100)'),
             ('registration_pin', 'VARCHAR(20)'),
-            ('logo_url', 'TEXT')
+            ('logo_url', 'TEXT'),
+            ('uniform_min', 'INT DEFAULT 1'),
+            ('uniform_max', 'INT DEFAULT 99')
         ]
         for col, col_type in team_cols:
             if col not in column_names:
@@ -320,7 +322,29 @@ with app.app_context():
             # Update password for safety if it already exists
             hp = generate_password_hash('admin123')
             db.session.execute(text("UPDATE users SET password_hash = :hp WHERE username = 'superadmin'"), {"hp": hp})
+        # Ensure all existing teams have uniform_min = 1 and uniform_max = 99 and expand uniforms up to 99
+        try:
+            db.session.execute(text("UPDATE teams SET uniform_min = 1 WHERE uniform_min IS NULL"))
+            db.session.execute(text("UPDATE teams SET uniform_max = 99 WHERE uniform_max IS NULL"))
             db.session.commit()
+            
+            teams_res = db.session.execute(text("SELECT id, uniform_min, uniform_max FROM teams")).fetchall()
+            for t_row in teams_res:
+                t_id, t_min, t_max = t_row[0], t_row[1] or 1, t_row[2] or 99
+                max_existing = db.session.execute(
+                    text("SELECT MAX(number) FROM uniform_numbers WHERE team_id = :team"),
+                    {"team": t_id}
+                ).scalar()
+                if max_existing is not None and max_existing < t_max:
+                    for n in range(max_existing + 1, t_max + 1):
+                        db.session.execute(
+                            text("INSERT INTO uniform_numbers (team_id, number, is_available) VALUES (:team, :n, TRUE)"),
+                            {"team": t_id, "n": n}
+                        )
+                    db.session.commit()
+        except Exception as ute:
+            print(f"⚠️ Note on uniform numbers migration: {ute}")
+            db.session.rollback()
 
         db.session.commit()
         print("✅ Backend fully initialized and migrated.")
@@ -1180,6 +1204,62 @@ def update_position(pos_id):
         return jsonify({"error": str(e)}), 400
 
 # --- UNIFORM NUMBERS ---
+
+def sync_team_uniform_numbers(team_id, new_min, new_max):
+    """
+    Ajusta el rango de números de uniforme disponibles para un equipo.
+    - new_min: int >= 0
+    - new_max: int >= new_min
+    - Agrega los números faltantes en el rango como is_available = TRUE.
+    - Elimina los números fuera del rango SOLO si están libres y ningún jugador los tiene asignados.
+    - Actualiza uniform_min y uniform_max en la tabla teams.
+    """
+    try:
+        new_min = max(0, int(new_min))
+        new_max = max(new_min, int(new_max))
+    except (ValueError, TypeError):
+        new_min = 1
+        new_max = 99
+
+    # 1. Obtener números actuales en uniform_numbers
+    existing_rows = db.session.execute(
+        text("SELECT number, is_available FROM uniform_numbers WHERE team_id = :team"),
+        {"team": team_id}
+    ).fetchall()
+    existing_dict = {row[0]: bool(row[1]) for row in existing_rows}
+
+    # 2. Obtener números actualmente asignados a jugadores del equipo
+    player_rows = db.session.execute(
+        text("SELECT DISTINCT uniform_number FROM players WHERE team_id = :team AND uniform_number IS NOT NULL"),
+        {"team": team_id}
+    ).fetchall()
+    assigned_numbers = {row[0] for row in player_rows}
+
+    target_numbers = set(range(new_min, new_max + 1))
+
+    # 3. Agregar números nuevos que faltan en el rango
+    to_add = target_numbers - set(existing_dict.keys())
+    for n in sorted(to_add):
+        db.session.execute(
+            text("INSERT INTO uniform_numbers (team_id, number, is_available) VALUES (:team, :n, TRUE)"),
+            {"team": team_id, "n": n}
+        )
+
+    # 4. Eliminar números fuera del rango SOLO si NO están asignados a jugadores
+    to_remove = set(existing_dict.keys()) - target_numbers
+    for n in to_remove:
+        if n not in assigned_numbers and existing_dict.get(n, True):
+            db.session.execute(
+                text("DELETE FROM uniform_numbers WHERE team_id = :team AND number = :n"),
+                {"team": team_id, "n": n}
+            )
+
+    # 5. Actualizar los límites en la tabla teams
+    db.session.execute(
+        text("UPDATE teams SET uniform_min = :min, uniform_max = :max WHERE id = :team"),
+        {"min": new_min, "max": new_max, "team": team_id}
+    )
+    db.session.commit()
 
 @app.route('/api/<string:team_slug>/uniform-numbers/available', methods=['GET'])
 @app.route('/api/teams/<string:team_slug>/uniform-numbers/available', methods=['GET'])
@@ -3406,14 +3486,17 @@ def get_settings():
     team_id = request.headers.get('X-Team-ID')
     if not team_id: return jsonify({"error": "Unauthorized"}), 401
     sql = """
-        SELECT s.team_id, s.team_name, s.team_logo_url, s.favicon_url, s.updated_at, t.registration_pin, t.slug 
-        FROM settings s JOIN teams t ON s.team_id = t.id 
-        WHERE s.team_id = :team
+        SELECT s.team_id, s.team_name, s.team_logo_url, s.favicon_url, s.updated_at, t.registration_pin, t.slug, t.uniform_min, t.uniform_max 
+        FROM teams t LEFT JOIN settings s ON s.team_id = t.id 
+        WHERE t.id = :team
     """
     row = db.session.execute(text(sql), {"team": team_id}).fetchone()
     if row:
-        cols = ['team_id', 'team_name', 'team_logo_url', 'favicon_url', 'updated_at', 'registration_pin', 'slug']
-        return jsonify(dict(zip(cols, row)))
+        cols = ['team_id', 'team_name', 'team_logo_url', 'favicon_url', 'updated_at', 'registration_pin', 'slug', 'uniform_min', 'uniform_max']
+        res = dict(zip(cols, row))
+        if res.get('uniform_min') is None: res['uniform_min'] = 1
+        if res.get('uniform_max') is None: res['uniform_max'] = 99
+        return jsonify(res)
     return jsonify({"error": "Settings not found"}), 404
 
 @app.route('/api/<string:team_slug>/settings', methods=['GET'])
@@ -3495,6 +3578,12 @@ def update_settings():
                 text("UPDATE teams SET registration_pin = :pin WHERE id = :team"),
                 {"pin": data.get('registration_pin') or None, "team": team_id}
             )
+
+        # Sync uniform numbers if uniform_min or uniform_max provided
+        if 'uniform_min' in data or 'uniform_max' in data:
+            u_min = data.get('uniform_min', 1)
+            u_max = data.get('uniform_max', 99)
+            sync_team_uniform_numbers(team_id, u_min, u_max)
 
         db.session.commit()
         log_activity(team_id, "UPDATE_SETTINGS", "Settings updated by admin")
@@ -3917,15 +4006,26 @@ def create_team():
             if reg and not reg[0]:
                 return jsonify({"error": "El registro está cerrado para este torneo."}), 403
 
+        u_min = 1
+        u_max = 99
+        try:
+            if 'uniform_min' in data and data['uniform_min'] is not None:
+                u_min = max(0, int(data['uniform_min']))
+            if 'uniform_max' in data and data['uniform_max'] is not None:
+                u_max = max(u_min, int(data['uniform_max']))
+        except (ValueError, TypeError):
+            u_min, u_max = 1, 99
+
         # 1. Create Team
         res = db.session.execute(
             text("""INSERT INTO teams 
-                 (name, slug, tournament_id, delegate_document, delegate_name, delegate_email, delegate_phone, delegate_address, delegate_city, registration_pin, logo_url) 
-                 VALUES (:name, :slug, :tid, :ddoc, :dname, :demail, :dphone, :daddress, :dcity, :pin, :logo)"""),
+                 (name, slug, tournament_id, delegate_document, delegate_name, delegate_email, delegate_phone, delegate_address, delegate_city, registration_pin, logo_url, uniform_min, uniform_max) 
+                 VALUES (:name, :slug, :tid, :ddoc, :dname, :demail, :dphone, :daddress, :dcity, :pin, :logo, :umin, :umax)"""),
             {
                 "name": name, "slug": slug, "tid": t_id, "ddoc": del_doc, "dname": del_name, 
                 "demail": del_email, "dphone": del_phone, "daddress": del_address, "dcity": del_city,
-                "pin": reg_pin or None, "logo": data.get('logo_url')
+                "pin": reg_pin or None, "logo": data.get('logo_url'),
+                "umin": u_min, "umax": u_max
             }
         )
         team_id = res.lastrowid
@@ -3964,9 +4064,9 @@ def create_team():
         except Exception as pe:
             print(f"Warning: Could not init positions for team {team_id}: {pe}")
         
-        # 5. Initialize Uniform Numbers (0-100) (optional failure)
+        # 5. Initialize Uniform Numbers (optional failure)
         try:
-            for i in range(0, 31): # Only create 0-30 to save time/space, can add more later
+            for i in range(u_min, u_max + 1):
                 db.session.execute(
                     text("INSERT INTO uniform_numbers (team_id, number, is_available) VALUES (:tid, :n, TRUE)"),
                     {"tid": team_id, "n": i}
@@ -4046,6 +4146,13 @@ def update_team(team_id):
                     db.session.execute(text("UPDATE users SET username = :u, password_hash = :p WHERE id = :uid"), {"u": admin_user, "p": pass_hash, "uid": user_id})
                 else:
                     db.session.execute(text("UPDATE users SET username = :u WHERE id = :uid"), {"u": admin_user, "uid": user_id})
+
+        # Sync uniform numbers if provided
+        if 'uniform_min' in data or 'uniform_max' in data:
+            u_min = data.get('uniform_min')
+            u_max = data.get('uniform_max')
+            if u_min is not None and u_max is not None:
+                sync_team_uniform_numbers(team_id, u_min, u_max)
 
         db.session.commit()
         return jsonify({"message": "Team updated successfully"}), 200

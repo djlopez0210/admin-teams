@@ -19,7 +19,7 @@ const AdminPanel = () => {
     const [adminRole, setAdminRole] = useState(localStorage.getItem('adminRole') || 'admin');
     const [activeTab, setActiveTab] = useState(localStorage.getItem('adminRole') === 'superadmin' ? 'teams' : 'stats');
     const [teams, setTeams] = useState([]);
-    const [newTeam, setNewTeam] = useState({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '' });
+    const [newTeam, setNewTeam] = useState({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '', uniform_min: 1, uniform_max: 99 });
     const [editingTeamId, setEditingTeamId] = useState(null);
     const [showTeamModal, setShowTeamModal] = useState(false);
     const [teamSearch, setTeamSearch] = useState('');
@@ -31,7 +31,9 @@ const AdminPanel = () => {
         team_name: '',
         team_logo_url: '',
         favicon_url: '',
-        registration_pin: ''
+        registration_pin: '',
+        uniform_min: 1,
+        uniform_max: 99
     });
     const [costs, setCosts] = useState([]);
     const [newCost, setNewCost] = useState({ item_name: '', amount: '', is_mandatory: true });
@@ -87,7 +89,11 @@ const AdminPanel = () => {
                 setStats(statsRes.data);
                 setLogs(logsRes.data);
                 setPositions(posRes.data);
-                setSettings(settingsRes.data);
+                setSettings({
+                    ...settingsRes.data,
+                    uniform_min: settingsRes.data.uniform_min ?? 1,
+                    uniform_max: settingsRes.data.uniform_max ?? 99
+                });
                 setCosts(costsRes.data);
             }
         } catch (err) {
@@ -171,7 +177,9 @@ const AdminPanel = () => {
                 team_name: settings.team_name,
                 team_logo_url: settings.team_logo_url,
                 favicon_url: settings.favicon_url,
-                registration_pin: settings.registration_pin
+                registration_pin: settings.registration_pin,
+                uniform_min: Number(settings.uniform_min) || 1,
+                uniform_max: Number(settings.uniform_max) || 99
             }, activeTeamId);
             showNotification('Identidad del equipo actualizada con éxito', 'success');
             loadData(activeTeamId);
@@ -191,7 +199,7 @@ const AdminPanel = () => {
                 await adminService.createTeam(newTeam);
                 showNotification('Equipo y administrador creados con éxito', 'success');
             }
-            setNewTeam({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '' });
+            setNewTeam({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '', uniform_min: 1, uniform_max: 99 });
             setEditingTeamId(null);
             setShowTeamModal(false);
             loadData();
@@ -205,14 +213,15 @@ const AdminPanel = () => {
         setNewTeam({
             name: t.name || '', slug: t.slug || '', admin_username: t.admin_username || '', admin_password: '',
             delegate_document: t.delegate_document || '', delegate_name: t.delegate_name || '',
-            delegate_email: t.delegate_email || '', registration_pin: t.registration_pin || ''
+            delegate_email: t.delegate_email || '', registration_pin: t.registration_pin || '',
+            uniform_min: t.uniform_min ?? 1, uniform_max: t.uniform_max ?? 99
         });
         setShowTeamModal(true);
     };
 
     const handleCancelEditTeam = () => {
         setEditingTeamId(null);
-        setNewTeam({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '' });
+        setNewTeam({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '', uniform_min: 1, uniform_max: 99 });
         setShowTeamModal(false);
     };
 
@@ -928,6 +937,33 @@ const AdminPanel = () => {
                                                 </div>
                                             </div>
 
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+                                                <div className="form-group" style={{ margin: 0 }}>
+                                                    <label className="label">Dorsal Mínimo</label>
+                                                    <input 
+                                                        type="number"
+                                                        className="input"
+                                                        min="0"
+                                                        max="999"
+                                                        placeholder="1"
+                                                        value={newTeam.uniform_min ?? 1}
+                                                        onChange={(e) => setNewTeam({...newTeam, uniform_min: parseInt(e.target.value) || 0})}
+                                                    />
+                                                </div>
+                                                <div className="form-group" style={{ margin: 0 }}>
+                                                    <label className="label">Dorsal Máximo</label>
+                                                    <input 
+                                                        type="number"
+                                                        className="input"
+                                                        min="1"
+                                                        max="999"
+                                                        placeholder="99"
+                                                        value={newTeam.uniform_max ?? 99}
+                                                        onChange={(e) => setNewTeam({...newTeam, uniform_max: parseInt(e.target.value) || 1})}
+                                                    />
+                                                </div>
+                                            </div>
+
                                             <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '1.5rem', borderTop: '1px solid var(--glass-border)', paddingTop: '1.25rem' }}>
                                                 <button 
                                                     type="button" 
@@ -1351,6 +1387,38 @@ const AdminPanel = () => {
                                                 onChange={(e) => setSettings({ ...settings, registration_pin: e.target.value.replace(/\D/g, '').slice(0, 4) })}
                                             />
                                             <small style={{ color: 'var(--text-muted)' }}>Déjalo vacío si no quieres exigir PIN para la inscripción.</small>
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="label">Rango de Dorsales Permitidos (1 - 99)</label>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                                                <div>
+                                                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Dorsal Mínimo</label>
+                                                    <input
+                                                        type="number"
+                                                        className="input"
+                                                        min="0"
+                                                        max="999"
+                                                        placeholder="1"
+                                                        value={settings.uniform_min ?? 1}
+                                                        onChange={(e) => setSettings({ ...settings, uniform_min: parseInt(e.target.value) || 0 })}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Dorsal Máximo</label>
+                                                    <input
+                                                        type="number"
+                                                        className="input"
+                                                        min="1"
+                                                        max="999"
+                                                        placeholder="99"
+                                                        value={settings.uniform_max ?? 99}
+                                                        onChange={(e) => setSettings({ ...settings, uniform_max: parseInt(e.target.value) || 1 })}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <small style={{ color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
+                                                Define el rango de números disponibles para la inscripción (por defecto 1 al 99). Se ajustarán automáticamente al guardar.
+                                            </small>
                                         </div>
                                         <div className="form-group">
                                             <label className="label">Logo del Equipo</label>
