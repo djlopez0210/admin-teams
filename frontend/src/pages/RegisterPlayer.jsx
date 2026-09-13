@@ -258,24 +258,38 @@ const RegisterPlayer = () => {
     if (hasPin && !pinValidated) {
         return (
             <div className="animate-fade-in" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-                <div className="glass" style={{ padding: '3rem', maxWidth: '400px', width: '100%', textAlign: 'center' }}>
-                    <h2 style={{ marginBottom: '1rem' }}>🛡️ Acceso Restringido</h2>
-                    <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>Ingresa el PIN proporcionado por el delegado del equipo para continuar con la inscripción.</p>
+                <div className="glass" style={{ padding: '3rem', maxWidth: '420px', width: '100%', textAlign: 'center' }}>
+                    {teamLogo && (
+                        <img 
+                            src={teamLogo} 
+                            alt={teamName || 'Equipo'} 
+                            style={{ width: '64px', height: '64px', objectFit: 'contain', margin: '0 auto 1rem', display: 'block', borderRadius: '8px' }} 
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                    )}
+                    {teamName && (
+                        <h3 style={{ marginBottom: '0.5rem', color: 'var(--primary)', fontWeight: 700 }}>{teamName}</h3>
+                    )}
+                    <h2 style={{ marginBottom: '0.75rem' }}>🛡️ Acceso con PIN</h2>
+                    <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+                        Ingresa el PIN de 4 dígitos proporcionado por el delegado del equipo para continuar con la inscripción.
+                    </p>
                     
                     <form onSubmit={handlePinSubmit}>
                         <div className="form-group">
                             <input 
                                 type="text"
                                 className="input" 
-                                placeholder="PIN de 4 dígitos" 
+                                placeholder="• • • •" 
                                 maxLength="4"
-                                style={{ textAlign: 'center', fontSize: '1.5rem', letterSpacing: '0.5rem', WebkitTextSecurity: 'disc' }}
+                                style={{ textAlign: 'center', fontSize: '1.8rem', letterSpacing: '0.5rem', WebkitTextSecurity: 'disc' }}
                                 autoComplete="off"
                                 data-1pignore="true"
                                 data-lpignore="true"
                                 value={pinInput}
                                 onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
                                 required
+                                autoFocus
                             />
                         </div>
                         {pinError && <p style={{ color: 'var(--error)', fontSize: '0.85rem', marginTop: '0.5rem' }}>{pinError}</p>}

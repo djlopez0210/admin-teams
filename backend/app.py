@@ -756,8 +756,22 @@ def get_team_id_from_slug(slug):
         row = db.session.execute(text("SELECT id FROM teams WHERE id = :id"), {"id": int(slug)}).fetchone()
         if row:
             return row[0]
+    # 1. Exact match
     result = db.session.execute(text("SELECT id FROM teams WHERE slug = :slug"), {"slug": slug}).fetchone()
-    return result[0] if result else None
+    if result:
+        return result[0]
+    # 2. Case-insensitive match
+    result = db.session.execute(text("SELECT id FROM teams WHERE LOWER(slug) = LOWER(:slug)"), {"slug": slug}).fetchone()
+    if result:
+        return result[0]
+    # 3. Resilient prefix / alias match (e.g., 'bsg' vs 'bsg-f')
+    candidates = db.session.execute(
+        text("SELECT id FROM teams WHERE slug LIKE :prefix OR :slug LIKE CONCAT(slug, '-%')"),
+        {"prefix": f"{slug}-%", "slug": slug}
+    ).fetchall()
+    if len(candidates) == 1:
+        return candidates[0][0]
+    return None
 
 def get_tournament_id_from_slug(slug):
     result = db.session.execute(text("SELECT id FROM tournaments WHERE slug = :slug"), {"slug": slug}).fetchone()
@@ -3433,7 +3447,7 @@ def validate_team_pin(team_slug):
     
     if actual_pin and actual_pin == str(pin):
         return jsonify({"valid": True})
-    return jsonify({"error": f"PIN inválido. DB dice: '{actual_pin}', Tú mandaste: '{pin}'"}), 401
+    return jsonify({"error": "PIN inválido. Intenta de nuevo."}), 401
 
 @app.route('/api/<string:team_slug>/costs', methods=['GET'])
 def get_public_costs(team_slug):

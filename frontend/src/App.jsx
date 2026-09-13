@@ -112,7 +112,7 @@ function TeamLayout({ children, isPublic = true }) {
 
   const getLogoDestination = () => {
     if (isPublic) {
-      return teamSlug ? `/${teamSlug}` : '/';
+      return teamSlug ? `/${teamSlug}/registro` : '/';
     }
     if (!isAuthenticated) return '/';
     return getRoleDashboard(role);
@@ -162,7 +162,7 @@ function TeamLayout({ children, isPublic = true }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
         <nav className="nav-links">
           {isPublic ? (
-            <NavLink to={`/${teamSlug}`} className="nav-link">
+            <NavLink to={`/${teamSlug}/registro`} className="nav-link">
               <UserPlus size={18} inline /> Registro
             </NavLink>
           ) : !isAuthenticated ? (
@@ -370,22 +370,18 @@ function App() {
           {/* Tournament routes */}
           <Route 
             path="/:tournamentSlug"
-            element={
-              <ProtectedRoute>
-                <TournamentLanding />
-              </ProtectedRoute>
-            }
+            element={<TournamentLanding />}
           >
             <Route path="stats" element={<TournamentLanding />} />
           </Route>
 
-          {/* Direct Team Registration Route */}
+          {/* Direct Team Registration Route (Public with optional PIN check) */}
           <Route 
             path="/:teamSlug/registro" 
             element={
-              <ProtectedRoute>
-                <TeamLayout isPublic={false}><RegisterPlayer /></TeamLayout>
-              </ProtectedRoute>
+              <TeamLayout isPublic={true}>
+                <RegisterPlayer />
+              </TeamLayout>
             } 
           />
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Trophy, Calendar, Table as TableIcon, ArrowLeft, Loader2, Info, Download, MapPin, Users, Target } from 'lucide-react';
-import { tournamentService } from '../services/api';
+import { tournamentService, settingsService } from '../services/api';
 import { useNotification } from '../context/NotificationContext';
 
 const TournamentLanding = () => {
@@ -59,6 +59,14 @@ const TournamentLanding = () => {
             }
         } catch (err) {
             console.error('Error loading tournament data', err);
+            // If tournament not found, check if it might be a direct team slug
+            try {
+                const teamRes = await settingsService.getPublic(tournamentSlug);
+                if (teamRes.data && (teamRes.data.team_id || teamRes.data.team_name)) {
+                    navigate(`/${tournamentSlug}/registro`, { replace: true });
+                    return;
+                }
+            } catch (_) {}
             showNotification('Error al cargar datos del torneo.', 'error');
         } finally {
             setLoading(false);
