@@ -41,6 +41,120 @@ app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32 MB max upload limit
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
+def sync_team_uniform_numbers(team_id, new_min, new_max):
+    """
+    Ajusta el rango de números de uniforme disponibles para un equipo.
+    - new_min: int >= 0
+    - new_max: int >= new_min
+    - Agrega los números faltantes en el rango como is_available = TRUE.
+    - Elimina los números fuera del rango SOLO si están libres y ningún jugador los tiene asignados.
+    - Actualiza uniform_min y uniform_max en la tabla teams.
+    """
+    try:
+        new_min = max(0, int(new_min))
+        new_max = max(new_min, int(new_max))
+    except (ValueError, TypeError):
+        new_min = 1
+        new_max = 99
+
+    # 1. Obtener números actuales en uniform_numbers
+    existing_rows = db.session.execute(
+        text("SELECT number, is_available FROM uniform_numbers WHERE team_id = :team"),
+        {"team": team_id}
+    ).fetchall()
+    existing_dict = {row[0]: bool(row[1]) for row in existing_rows}
+
+    # 2. Obtener números actualmente asignados a jugadores del equipo
+    player_rows = db.session.execute(
+        text("SELECT DISTINCT uniform_number FROM players WHERE team_id = :team AND uniform_number IS NOT NULL"),
+        {"team": team_id}
+    ).fetchall()
+    assigned_numbers = {row[0] for row in player_rows}
+
+    target_numbers = set(range(new_min, new_max + 1))
+
+    # 3. Agregar números nuevos que faltan en el rango
+    to_add = target_numbers - set(existing_dict.keys())
+    for n in sorted(to_add):
+        db.session.execute(
+            text("INSERT INTO uniform_numbers (team_id, number, is_available) VALUES (:team, :n, TRUE)"),
+            {"team": team_id, "n": n}
+        )
+
+    # 4. Eliminar números fuera del rango SOLO si NO están asignados a jugadores
+    to_remove = set(existing_dict.keys()) - target_numbers
+    for n in to_remove:
+        if n not in assigned_numbers and existing_dict.get(n, True):
+            db.session.execute(
+                text("DELETE FROM uniform_numbers WHERE team_id = :team AND number = :n"),
+                {"team": team_id, "n": n}
+            )
+
+    # 5. Actualizar los límites en la tabla teams
+    db.session.execute(
+        text("UPDATE teams SET uniform_min = :min, uniform_max = :max WHERE id = :team"),
+        {"min": new_min, "max": new_max, "team": team_id}
+    )
+    db.session.commit()
+
+def reconcile_team_uniform_numbers(team_id):
+    """
+    Garantiza consistencia absoluta en los números de uniforme para un equipo:
+    - Asegura que todos los números del rango configurado y los que usen jugadores existan en uniform_numbers.
+    - Los números usados por jugadores activos quedan is_available = FALSE.
+    - Todos los demás números quedan is_available = TRUE (libres para cualquier otro jugador).
+    """
+    try:
+        t_row = db.session.execute(
+            text("SELECT uniform_min, uniform_max FROM teams WHERE id = :team"),
+            {"team": team_id}
+        ).fetchone()
+        t_min = t_row[0] if t_row and t_row[0] is not None else 1
+        t_max = t_row[1] if t_row and t_row[1] is not None else 99
+
+        # Números actualmente asignados a jugadores de este equipo
+        assigned = db.session.execute(
+            text("SELECT DISTINCT uniform_number FROM players WHERE team_id = :team AND uniform_number IS NOT NULL"),
+            {"team": team_id}
+        ).fetchall()
+        assigned_set = {int(row[0]) for row in assigned if row[0] is not None}
+
+        required_numbers = set(range(t_min, t_max + 1)).union(assigned_set)
+
+        existing = db.session.execute(
+            text("SELECT number FROM uniform_numbers WHERE team_id = :team"),
+            {"team": team_id}
+        ).fetchall()
+        existing_set = {int(row[0]) for row in existing if row[0] is not None}
+
+        # Insertar los que falten en uniform_numbers
+        missing = required_numbers - existing_set
+        for n in sorted(missing):
+            db.session.execute(
+                text("INSERT INTO uniform_numbers (team_id, number, is_available) VALUES (:team, :n, TRUE)"),
+                {"team": team_id, "n": n}
+            )
+
+        # Actualizar disponibilidad con precisión total
+        if assigned_set:
+            db.session.execute(
+                text("UPDATE uniform_numbers SET is_available = TRUE WHERE team_id = :team AND number NOT IN :assigned"),
+                {"team": team_id, "assigned": tuple(assigned_set)}
+            )
+            db.session.execute(
+                text("UPDATE uniform_numbers SET is_available = FALSE WHERE team_id = :team AND number IN :assigned"),
+                {"team": team_id, "assigned": tuple(assigned_set)}
+            )
+        else:
+            db.session.execute(
+                text("UPDATE uniform_numbers SET is_available = TRUE WHERE team_id = :team"),
+                {"team": team_id}
+            )
+        db.session.commit()
+    except Exception as e:
+        print(f"Error reconciling uniforms for team {team_id}: {e}")
+        db.session.rollback()
+
 with app.app_context():
     try:
         # Essential Tables (Baseline)
@@ -322,26 +436,15 @@ with app.app_context():
             # Update password for safety if it already exists
             hp = generate_password_hash('admin123')
             db.session.execute(text("UPDATE users SET password_hash = :hp WHERE username = 'superadmin'"), {"hp": hp})
-        # Ensure all existing teams have uniform_min = 1 and uniform_max = 99 and expand uniforms up to 99
+        # Ensure all existing teams have uniform_min = 1 and uniform_max = 99 and reconcile uniforms
         try:
             db.session.execute(text("UPDATE teams SET uniform_min = 1 WHERE uniform_min IS NULL"))
             db.session.execute(text("UPDATE teams SET uniform_max = 99 WHERE uniform_max IS NULL"))
             db.session.commit()
             
-            teams_res = db.session.execute(text("SELECT id, uniform_min, uniform_max FROM teams")).fetchall()
+            teams_res = db.session.execute(text("SELECT id FROM teams")).fetchall()
             for t_row in teams_res:
-                t_id, t_min, t_max = t_row[0], t_row[1] or 1, t_row[2] or 99
-                max_existing = db.session.execute(
-                    text("SELECT MAX(number) FROM uniform_numbers WHERE team_id = :team"),
-                    {"team": t_id}
-                ).scalar()
-                if max_existing is not None and max_existing < t_max:
-                    for n in range(max_existing + 1, t_max + 1):
-                        db.session.execute(
-                            text("INSERT INTO uniform_numbers (team_id, number, is_available) VALUES (:team, :n, TRUE)"),
-                            {"team": t_id, "n": n}
-                        )
-                    db.session.commit()
+                reconcile_team_uniform_numbers(t_row[0])
         except Exception as ute:
             print(f"⚠️ Note on uniform numbers migration: {ute}")
             db.session.rollback()
@@ -1205,62 +1308,6 @@ def update_position(pos_id):
 
 # --- UNIFORM NUMBERS ---
 
-def sync_team_uniform_numbers(team_id, new_min, new_max):
-    """
-    Ajusta el rango de números de uniforme disponibles para un equipo.
-    - new_min: int >= 0
-    - new_max: int >= new_min
-    - Agrega los números faltantes en el rango como is_available = TRUE.
-    - Elimina los números fuera del rango SOLO si están libres y ningún jugador los tiene asignados.
-    - Actualiza uniform_min y uniform_max en la tabla teams.
-    """
-    try:
-        new_min = max(0, int(new_min))
-        new_max = max(new_min, int(new_max))
-    except (ValueError, TypeError):
-        new_min = 1
-        new_max = 99
-
-    # 1. Obtener números actuales en uniform_numbers
-    existing_rows = db.session.execute(
-        text("SELECT number, is_available FROM uniform_numbers WHERE team_id = :team"),
-        {"team": team_id}
-    ).fetchall()
-    existing_dict = {row[0]: bool(row[1]) for row in existing_rows}
-
-    # 2. Obtener números actualmente asignados a jugadores del equipo
-    player_rows = db.session.execute(
-        text("SELECT DISTINCT uniform_number FROM players WHERE team_id = :team AND uniform_number IS NOT NULL"),
-        {"team": team_id}
-    ).fetchall()
-    assigned_numbers = {row[0] for row in player_rows}
-
-    target_numbers = set(range(new_min, new_max + 1))
-
-    # 3. Agregar números nuevos que faltan en el rango
-    to_add = target_numbers - set(existing_dict.keys())
-    for n in sorted(to_add):
-        db.session.execute(
-            text("INSERT INTO uniform_numbers (team_id, number, is_available) VALUES (:team, :n, TRUE)"),
-            {"team": team_id, "n": n}
-        )
-
-    # 4. Eliminar números fuera del rango SOLO si NO están asignados a jugadores
-    to_remove = set(existing_dict.keys()) - target_numbers
-    for n in to_remove:
-        if n not in assigned_numbers and existing_dict.get(n, True):
-            db.session.execute(
-                text("DELETE FROM uniform_numbers WHERE team_id = :team AND number = :n"),
-                {"team": team_id, "n": n}
-            )
-
-    # 5. Actualizar los límites en la tabla teams
-    db.session.execute(
-        text("UPDATE teams SET uniform_min = :min, uniform_max = :max WHERE id = :team"),
-        {"min": new_min, "max": new_max, "team": team_id}
-    )
-    db.session.commit()
-
 @app.route('/api/<string:team_slug>/uniform-numbers/available', methods=['GET'])
 @app.route('/api/teams/<string:team_slug>/uniform-numbers/available', methods=['GET'])
 def get_available_numbers(team_slug):
@@ -1500,8 +1547,8 @@ def register_player(team_slug):
             )
             player_id = res.lastrowid
 
-        db.session.execute(text("UPDATE uniform_numbers SET is_available = FALSE WHERE team_id = :team AND number = :n"), {"team": team_id, "n": uniform_num})
         db.session.commit()
+        reconcile_team_uniform_numbers(team_id)
         log_activity(team_id, "REGISTER_PLAYER", f"Player {full_name} registered (Doc: {doc_str})")
 
         # Enviar correo de bienvenida al jugador si tiene email registrado
@@ -1593,17 +1640,22 @@ def update_player(p_id):
         
         # Handle uniform change
         if new_uniform != old_uniform:
-            # Check if new number is available
-            avail = db.session.execute(
-                text("SELECT is_available FROM uniform_numbers WHERE team_id = :team AND number = :n"),
-                {"team": effective_team_id, "n": new_uniform}
-            ).fetchone()
-            if not avail or not avail[0]:
-                return jsonify({"error": f"El número {new_uniform} no está disponible"}), 400
-            
-            # Swap
-            db.session.execute(text("UPDATE uniform_numbers SET is_available = TRUE WHERE team_id = :team AND number = :n"), {"team": effective_team_id, "n": old_uniform})
-            db.session.execute(text("UPDATE uniform_numbers SET is_available = FALSE WHERE team_id = :team AND number = :n"), {"team": effective_team_id, "n": new_uniform})
+            if new_uniform is not None:
+                # Verificar si otro jugador del mismo equipo ya tiene asignado new_uniform
+                other_using = db.session.execute(
+                    text("SELECT COUNT(*) FROM players WHERE team_id = :team AND id != :pid AND uniform_number = :n"),
+                    {"team": effective_team_id, "pid": p_id, "n": new_uniform}
+                ).scalar()
+                if other_using:
+                    return jsonify({"error": f"El número {new_uniform} ya está asignado a otro jugador de este equipo"}), 400
+
+                # Verificar si está disponible en uniform_numbers
+                avail = db.session.execute(
+                    text("SELECT is_available FROM uniform_numbers WHERE team_id = :team AND number = :n"),
+                    {"team": effective_team_id, "n": new_uniform}
+                ).fetchone()
+                if avail and not avail[0]:
+                    return jsonify({"error": f"El número {new_uniform} no está disponible"}), 400
 
         # Full profile fields (Parte A): first/last name drive full_name when provided
         first_name = data.get('first_name')
@@ -1639,6 +1691,8 @@ def update_player(p_id):
         )
 
         db.session.commit()
+        # Garantizar que el dorsal anterior queda libre inmediatamente para cualquier otro jugador
+        reconcile_team_uniform_numbers(effective_team_id)
         log_activity(effective_team_id, "EDIT_PLAYER", f"Information updated for player: {curr[2]} (ID: {p_id})")
 
         # Provision player self-service login (Parte F.2) — idempotent upsert, isolated
@@ -1686,10 +1740,9 @@ def delete_player(p_id):
             return jsonify({"error": "Unauthorized"}), 401
         effective_team_id = team_id
 
-    unif = player[1]
-    db.session.execute(text("UPDATE uniform_numbers SET is_available = TRUE WHERE team_id = :team AND number = :n"), {"team": effective_team_id, "n": unif})
     db.session.execute(text("DELETE FROM players WHERE id = :id AND team_id = :team"), {"id": p_id, "team": effective_team_id})
     db.session.commit()
+    reconcile_team_uniform_numbers(effective_team_id)
     log_activity(effective_team_id, "DELETE_PLAYER", f"Deleted player ID: {p_id}")
     return jsonify({"message": "Player deleted"})
 
@@ -4371,10 +4424,8 @@ def enroll_player_in_team(team_id):
                 "cutout": cutout_url, "pos": position, "pos_id": primary_pos_id, "unif": uniform_num
             }
         )
-        if uniform_num:
-            db.session.execute(text("UPDATE uniform_numbers SET is_available = FALSE WHERE team_id = :team AND number = :n"), {"team": team_id, "n": uniform_num})
-
         db.session.commit()
+        reconcile_team_uniform_numbers(team_id)
         log_activity(team_id, "ENROLL_PLAYER", f"Player {full_name} enrolled from global base (Doc: {doc_str})")
 
         # Enviar correo de bienvenida al jugador si tiene email registrado
