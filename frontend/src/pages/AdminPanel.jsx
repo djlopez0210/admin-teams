@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Trash2, PieChart, Activity, RefreshCcw, LogOut, Edit2, Save, X, DollarSign, Palette, Settings, Users, Trophy, Search, ExternalLink, Shield, FileSpreadsheet, Copy, Check } from 'lucide-react';
 import { adminService, positionService, settingsService, costService, tournamentService } from '../services/api';
 import { useNotification } from '../context/NotificationContext';
@@ -7,6 +7,7 @@ import { compressImage } from '../utils/imageCompressor';
 
 const AdminPanel = () => {
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const { showNotification } = useNotification();
     const [stats, setStats] = useState(null);
     const [logs, setLogs] = useState([]);
@@ -17,7 +18,16 @@ const AdminPanel = () => {
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [adminRole, setAdminRole] = useState(localStorage.getItem('adminRole') || 'admin');
-    const [activeTab, setActiveTab] = useState(localStorage.getItem('adminRole') === 'superadmin' ? 'teams' : 'stats');
+    const queryTab = searchParams.get('tab');
+    const defaultTab = localStorage.getItem('adminRole') === 'superadmin' ? 'teams' : 'stats';
+    const [activeTab, setActiveTab] = useState(queryTab || defaultTab);
+
+    useEffect(() => {
+        const tab = searchParams.get('tab');
+        if (tab && ['teams', 'tournaments', 'stats', 'finances', 'branding'].includes(tab)) {
+            setActiveTab(tab);
+        }
+    }, [searchParams]);
     const [teams, setTeams] = useState([]);
     const [newTeam, setNewTeam] = useState({ name: '', slug: '', admin_username: '', admin_password: '', delegate_document: '', delegate_name: '', delegate_email: '', registration_pin: '', uniform_min: 1, uniform_max: 99 });
     const [editingTeamId, setEditingTeamId] = useState(null);
@@ -63,7 +73,7 @@ const AdminPanel = () => {
     const loadData = async (targetTeamId) => {
         setLoading(true);
         try {
-            let activeTeamId = targetTeamId || viewingTeamId || localStorage.getItem('adminTeamId') || localStorage.getItem('viewingTeamId');
+            let activeTeamId = targetTeamId || searchParams.get('teamId') || viewingTeamId || localStorage.getItem('adminTeamId') || localStorage.getItem('viewingTeamId');
             if (adminRole === 'superadmin') {
                 const [teamsRes, tournamentsRes] = await Promise.all([
                     adminService.getTeams(),
@@ -527,13 +537,13 @@ const AdminPanel = () => {
                             <>
                                 <button 
                                     className={`tab ${activeTab === 'teams' ? 'active' : ''}`}
-                                    onClick={() => setActiveTab('teams')}
+                                    onClick={() => { setActiveTab('teams'); setSearchParams({ tab: 'teams' }); }}
                                 >
                                     <Users size={18} /> Equipos
                                 </button>
                                 <button 
                                     className={`tab ${activeTab === 'tournaments' ? 'active' : ''}`}
-                                    onClick={() => setActiveTab('tournaments')}
+                                    onClick={() => { setActiveTab('tournaments'); setSearchParams({ tab: 'tournaments' }); }}
                                 >
                                     <Trophy size={18} /> Torneos
                                 </button>
@@ -543,24 +553,24 @@ const AdminPanel = () => {
                             <>
                                 <button
                                     className={`btn ${activeTab === 'stats' ? 'btn-primary' : 'btn-secondary'}`}
-                                    onClick={() => setActiveTab('stats')}
+                                    onClick={() => { setActiveTab('stats'); setSearchParams({ tab: 'stats' }); }}
                                     style={{ whiteSpace: 'nowrap' }}
                                 >
                                     <Activity size={18} /> Estadísticas
                                 </button>
                                 <button
                                     className={`btn ${activeTab === 'finances' ? 'btn-primary' : 'btn-secondary'}`}
-                                    onClick={() => setActiveTab('finances')}
+                                    onClick={() => { setActiveTab('finances'); setSearchParams({ tab: 'finances' }); }}
                                     style={{ whiteSpace: 'nowrap' }}
                                 >
                                     <DollarSign size={18} /> Recaudo
                                 </button>
                                 <button
                                     className={`btn ${activeTab === 'branding' ? 'btn-primary' : 'btn-secondary'}`}
-                                    onClick={() => setActiveTab('branding')}
+                                    onClick={() => { setActiveTab('branding'); setSearchParams({ tab: 'branding' }); }}
                                     style={{ whiteSpace: 'nowrap' }}
                                 >
-                                    <Palette size={18} /> Personalización y Tarifas
+                                    <Settings size={18} /> Configuración y Dorsales
                                 </button>
                             </>
                         )}
@@ -1325,7 +1335,7 @@ const AdminPanel = () => {
                             <form onSubmit={handleUpdateSettings}>
                                 <div className="grid-form" style={{ gap: '2rem' }}>
                                     <div>
-                                        <h3 style={{ marginBottom: '0.5rem' }}>Identidad del Equipo</h3>
+                                        <h3 style={{ marginBottom: '0.5rem' }}>Configuración del Equipo y Dorsales</h3>
                                         {(() => {
                                             const activeSlug = settings?.slug || localStorage.getItem('adminTeamSlug') || (teams.find(t => t.id === (viewingTeamId || localStorage.getItem('adminTeamId')))?.slug) || 'equipo';
                                             const registrationUrl = `${window.location.origin}/${activeSlug}/registro`;
@@ -1388,11 +1398,33 @@ const AdminPanel = () => {
                                             />
                                             <small style={{ color: 'var(--text-muted)' }}>Déjalo vacío si no quieres exigir PIN para la inscripción.</small>
                                         </div>
-                                        <div className="form-group">
-                                            <label className="label">Rango de Dorsales Permitidos (1 - 99)</label>
-                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+
+                                        {/* Rango de Dorsales Permitidos - Destacado */}
+                                        <div 
+                                            className="form-group"
+                                            style={{ 
+                                                padding: '1.25rem', 
+                                                borderRadius: '12px', 
+                                                border: '1.5px solid rgba(56, 189, 248, 0.35)', 
+                                                background: 'rgba(56, 189, 248, 0.05)', 
+                                                marginTop: '1.25rem',
+                                                marginBottom: '1.5rem' 
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
+                                                <Shield size={20} color="var(--primary)" />
+                                                <strong style={{ fontSize: '1.05rem', color: 'var(--primary)' }}>
+                                                    Rango de Dorsales Permitidos (1 - 99)
+                                                </strong>
+                                            </div>
+                                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem', lineHeight: '1.4' }}>
+                                                Define el rango de números disponibles para la inscripción y asignación de camisetas de este equipo. Al guardar, los dorsales disponibles se actualizarán automáticamente.
+                                            </p>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                                                 <div>
-                                                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Dorsal Mínimo</label>
+                                                    <label style={{ fontSize: '0.85rem', color: 'var(--text-main)', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
+                                                        Dorsal Mínimo
+                                                    </label>
                                                     <input
                                                         type="number"
                                                         className="input"
@@ -1401,10 +1433,13 @@ const AdminPanel = () => {
                                                         placeholder="1"
                                                         value={settings.uniform_min ?? 1}
                                                         onChange={(e) => setSettings({ ...settings, uniform_min: parseInt(e.target.value) || 0 })}
+                                                        style={{ fontSize: '1.15rem', fontWeight: 'bold', textAlign: 'center', borderColor: 'rgba(56, 189, 248, 0.5)' }}
                                                     />
                                                 </div>
                                                 <div>
-                                                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Dorsal Máximo</label>
+                                                    <label style={{ fontSize: '0.85rem', color: 'var(--text-main)', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
+                                                        Dorsal Máximo
+                                                    </label>
                                                     <input
                                                         type="number"
                                                         className="input"
@@ -1413,12 +1448,18 @@ const AdminPanel = () => {
                                                         placeholder="99"
                                                         value={settings.uniform_max ?? 99}
                                                         onChange={(e) => setSettings({ ...settings, uniform_max: parseInt(e.target.value) || 1 })}
+                                                        style={{ fontSize: '1.15rem', fontWeight: 'bold', textAlign: 'center', borderColor: 'rgba(56, 189, 248, 0.5)' }}
                                                     />
                                                 </div>
                                             </div>
-                                            <small style={{ color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
-                                                Define el rango de números disponibles para la inscripción (por defecto 1 al 99). Se ajustarán automáticamente al guardar.
-                                            </small>
+                                            <div style={{ marginTop: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                                                <span style={{ padding: '0.2rem 0.6rem', background: 'rgba(56, 189, 248, 0.15)', borderRadius: '6px', color: 'var(--primary)', fontWeight: 600, fontSize: '0.85rem' }}>
+                                                    Rango activo: #{settings.uniform_min ?? 1} al #{settings.uniform_max ?? 99}
+                                                </span>
+                                                <small style={{ color: 'var(--text-muted)' }}>
+                                                    {Math.max(0, (settings.uniform_max ?? 99) - (settings.uniform_min ?? 1) + 1)} números disponibles
+                                                </small>
+                                            </div>
                                         </div>
                                         <div className="form-group">
                                             <label className="label">Logo del Equipo</label>
@@ -1558,8 +1599,8 @@ const AdminPanel = () => {
                                         </div>
                                     </div>
                                 </div>
-                                <button type="submit" className="btn btn-primary" style={{ marginTop: '2rem', width: '200px' }}>
-                                    <Save size={18} /> Guardar Identidad
+                                <button type="submit" className="btn btn-primary" style={{ marginTop: '2rem', minWidth: '260px', padding: '0.75rem 1.5rem', fontSize: '1rem', fontWeight: 600 }}>
+                                    <Save size={18} /> Guardar Configuración y Dorsales
                                 </button>
                             </form>
                         </div>

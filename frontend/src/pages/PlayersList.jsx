@@ -864,6 +864,17 @@ const PlayersList = () => {
                         <button className="btn btn-secondary" onClick={handleExportTeamZip} disabled={!!exportProgress} style={{ fontSize: '0.85rem' }}>
                             <Package size={15} /> {exportProgress ? `Generando ${exportProgress.current}/${exportProgress.total}...` : 'Exportar Tarjetas (ZIP)'}
                         </button>
+                        <button 
+                            className="btn btn-secondary" 
+                            onClick={() => {
+                                const tid = getActiveTeamId();
+                                navigate(tid ? `/admin?tab=branding&teamId=${tid}` : '/admin?tab=branding');
+                            }} 
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}
+                            title="Configurar rango de dorsales y datos del equipo"
+                        >
+                            <Settings size={15} /> Configurar Dorsales
+                        </button>
                     </div>
                     )}
                 </div>
