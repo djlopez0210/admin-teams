@@ -34,7 +34,10 @@ const PlayerCard = React.forwardRef(({ template, data }, ref) => {
                 };
 
                 if (fieldType === 'photo' || fieldType === 'image') {
-                    const src = data?.[el.field];
+                    let src = data?.[el.field];
+                    if (el.field === 'team_logo' && !src) {
+                        src = '/logo-placeholder.png';
+                    }
                     return (
                         <div key={el.id} style={commonStyle}>
                             {src ? (
@@ -44,13 +47,43 @@ const PlayerCard = React.forwardRef(({ template, data }, ref) => {
                                     crossOrigin="anonymous"
                                     style={{
                                         width: '100%', height: '100%',
-                                        objectFit: style.objectFit || 'cover',
+                                        objectFit: style.objectFit || (el.field === 'team_logo' ? 'contain' : 'cover'),
                                         borderRadius: style.borderRadius || 0,
+                                    }}
+                                    onError={(e) => {
+                                        if (el.field === 'team_logo' && !e.currentTarget.src.includes('logo-placeholder.png')) {
+                                            e.currentTarget.src = '/logo-placeholder.png';
+                                        }
                                     }}
                                 />
                             ) : (
                                 <div style={{ width: '100%', height: '100%', borderRadius: style.borderRadius || 0, background: 'rgba(255,255,255,0.12)' }} />
                             )}
+                        </div>
+                    );
+                }
+
+                if (fieldType === 'custom_text' || el.field === 'custom_text') {
+                    return (
+                        <div
+                            key={el.id}
+                            style={{
+                                ...commonStyle,
+                                fontSize: style.fontSize || 22,
+                                color: style.color || '#ffffff',
+                                fontWeight: style.fontWeight || 700,
+                                fontFamily: style.fontFamily || 'inherit',
+                                textTransform: style.textTransform || 'none',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: style.textAlign === 'center' ? 'center' : style.textAlign === 'right' ? 'flex-end' : 'flex-start',
+                                textAlign: style.textAlign || 'center',
+                                overflow: 'hidden',
+                                whiteSpace: 'nowrap',
+                                textOverflow: 'ellipsis',
+                            }}
+                        >
+                            {el.text ?? ''}
                         </div>
                     );
                 }
@@ -64,6 +97,7 @@ const PlayerCard = React.forwardRef(({ template, data }, ref) => {
                             color: style.color || '#ffffff',
                             fontWeight: style.fontWeight || 600,
                             fontFamily: style.fontFamily || 'inherit',
+                            textTransform: style.textTransform || 'none',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: style.textAlign === 'center' ? 'center' : style.textAlign === 'right' ? 'flex-end' : 'flex-start',
@@ -73,7 +107,7 @@ const PlayerCard = React.forwardRef(({ template, data }, ref) => {
                             textOverflow: 'ellipsis',
                         }}
                     >
-                        {formatFieldValue(el.field, data)}
+                        {formatFieldValue(el.field, data, el)}
                     </div>
                 );
             })}

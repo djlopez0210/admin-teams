@@ -445,6 +445,21 @@ with app.app_context():
             teams_res = db.session.execute(text("SELECT id FROM teams")).fetchall()
             for t_row in teams_res:
                 reconcile_team_uniform_numbers(t_row[0])
+
+            # Sync teams.logo_url from settings.team_logo_url
+            try:
+                db.session.execute(text("""
+                    UPDATE teams t 
+                    JOIN settings s ON t.id = s.team_id 
+                    SET t.logo_url = s.team_logo_url 
+                    WHERE s.team_logo_url IS NOT NULL 
+                      AND s.team_logo_url != '' 
+                      AND (t.logo_url IS NULL OR t.logo_url = '')
+                """))
+                db.session.commit()
+            except Exception as logo_err:
+                print(f"⚠️ Note on team logo sync migration: {logo_err}")
+                db.session.rollback()
         except Exception as ute:
             print(f"⚠️ Note on uniform numbers migration: {ute}")
             db.session.rollback()
@@ -1773,7 +1788,8 @@ def get_player_history(p_id):
 CARD_DATA_SQL = """
     SELECT p.*,
        pos1.name as primary_position_name, pos2.name as secondary_position_name, pos3.name as tertiary_position_name,
-       t.name as team_name, t.logo_url as team_logo,
+       COALESCE(s.team_name, t.name) as team_name,
+       COALESCE(s.team_logo_url, t.logo_url) as team_logo,
        (SELECT COUNT(DISTINCT ml.match_id) FROM match_lineups ml WHERE ml.player_id = p.id) as matches_played,
        (SELECT COUNT(*) FROM match_events me WHERE me.player_id = p.id AND me.event_type = 'GOAL') as goals_total,
        (SELECT COUNT(*) FROM match_events me WHERE me.player_id = p.id AND me.event_type = 'YELLOW_CARD') as yellow_cards,
@@ -1784,6 +1800,7 @@ CARD_DATA_SQL = """
     LEFT JOIN positions pos2 ON p.secondary_position_id = pos2.id
     LEFT JOIN positions pos3 ON p.tertiary_position_id = pos3.id
     LEFT JOIN teams t ON p.team_id = t.id
+    LEFT JOIN settings s ON p.team_id = s.team_id
 """
 
 def row_to_card_data(row, columns):
@@ -3632,6 +3649,18 @@ def update_settings():
                 {"pin": data.get('registration_pin') or None, "team": team_id}
             )
 
+        # Sync logo and name to teams table
+        if 'team_logo_url' in data:
+            db.session.execute(
+                text("UPDATE teams SET logo_url = :logo WHERE id = :team"),
+                {"logo": data.get('team_logo_url'), "team": team_id}
+            )
+        if data.get('team_name'):
+            db.session.execute(
+                text("UPDATE teams SET name = :name WHERE id = :team"),
+                {"name": data.get('team_name'), "team": team_id}
+            )
+
         # Sync uniform numbers if uniform_min or uniform_max provided
         if 'uniform_min' in data or 'uniform_max' in data:
             u_min = data.get('uniform_min', 1)
@@ -4012,7 +4041,15 @@ def change_my_password():
 def list_teams():
     # Only superadmins should see all teams
     # (In a real app, verify role via token, for now check header or params)
-    result = db.session.execute(text("SELECT * FROM teams ORDER BY id ASC"))
+    result = db.session.execute(text("""
+        SELECT t.*, 
+               COALESCE(s.team_logo_url, t.logo_url) as logo_url, 
+               COALESCE(s.team_name, t.name) as name, 
+               s.favicon_url 
+        FROM teams t 
+        LEFT JOIN settings s ON t.id = s.team_id 
+        ORDER BY t.id ASC
+    """))
     columns = result.keys()
     teams = [dict(zip(columns, row)) for row in result]
     return jsonify(teams)

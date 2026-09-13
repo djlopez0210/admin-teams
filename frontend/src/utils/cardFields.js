@@ -29,9 +29,17 @@ export const CARD_FIELDS = [
     { id: 'avg_rating', label: 'Calificación promedio', type: 'text' },
 ];
 
-export const getFieldMeta = (fieldId) => CARD_FIELDS.find(f => f.id === fieldId);
+export const getFieldMeta = (fieldId) => {
+    if (fieldId === 'custom_text') {
+        return { id: 'custom_text', label: 'Texto / Título personalizado', type: 'custom_text' };
+    }
+    return CARD_FIELDS.find(f => f.id === fieldId);
+};
 
-export const formatFieldValue = (fieldId, data) => {
+export const formatFieldValue = (fieldId, data, element) => {
+    if (fieldId === 'custom_text' || element?.type === 'custom_text') {
+        return element?.text ?? 'TÍTULO';
+    }
     if (!data) return '';
     const value = data[fieldId];
     if (fieldId === 'birth_date') {
@@ -49,7 +57,29 @@ export const formatFieldValue = (fieldId, data) => {
     return String(value);
 };
 
+export const createDefaultCustomTextElement = (defaultText = 'TÍTULO') => ({
+    id: `custom_text_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+    field: 'custom_text',
+    type: 'custom_text',
+    text: defaultText,
+    x: 40,
+    y: 40,
+    width: 260,
+    height: 42,
+    style: {
+        fontSize: 22,
+        color: '#ffffff',
+        fontWeight: 700,
+        textAlign: 'center',
+        textTransform: 'uppercase',
+        zIndex: 2,
+    },
+});
+
 export const createDefaultElement = (fieldId) => {
+    if (fieldId === 'custom_text') {
+        return createDefaultCustomTextElement();
+    }
     const meta = getFieldMeta(fieldId);
     const isVisual = meta?.type === 'photo' || meta?.type === 'image';
     return {
@@ -58,10 +88,14 @@ export const createDefaultElement = (fieldId) => {
         type: meta?.type || 'text',
         x: 40,
         y: 40,
-        width: isVisual ? 160 : 220,
-        height: isVisual ? 160 : 36,
+        width: isVisual ? 140 : 220,
+        height: isVisual ? 140 : 36,
         style: isVisual
-            ? { borderRadius: meta?.type === 'photo' ? '50%' : 8, objectFit: 'cover', zIndex: 1 }
+            ? {
+                borderRadius: meta?.type === 'photo' ? '50%' : 8,
+                objectFit: fieldId === 'team_logo' ? 'contain' : 'cover',
+                zIndex: 1
+            }
             : { fontSize: 18, color: '#ffffff', fontWeight: 600, textAlign: 'left', zIndex: 1 },
     };
 };

@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Trash2, Save, Upload, Image as ImageIcon } from 'lucide-react';
-import { cardTemplateService, settingsService } from '../services/api';
+import { Trash2, Save, Upload, Image as ImageIcon, Type, Shield } from 'lucide-react';
+import { cardTemplateService, settingsService, adminService } from '../services/api';
 import { useNotification } from '../context/NotificationContext';
-import { CARD_FIELDS, getFieldMeta, formatFieldValue, createDefaultElement } from '../utils/cardFields';
+import { CARD_FIELDS, getFieldMeta, formatFieldValue, createDefaultElement, createDefaultCustomTextElement } from '../utils/cardFields';
 
 // Placeholder data so the superadmin can design the layout without needing
 // a real player loaded (the template is global, not tied to any one team).
-const SAMPLE_DATA = {
+const INITIAL_SAMPLE_DATA = {
     full_name: 'Juan Pérez', first_name: 'Juan', last_name: 'Pérez',
     uniform_number: 10, document_number: '123456789',
     primary_position_name: 'Delantero', secondary_position_name: 'Extremo Izquierdo', tertiary_position_name: 'Mediocampista',
     preferred_foot: 'derecha', blood_type: 'O+', eps: 'Sura', nationality: 'Colombiana',
     birth_date: '2000-05-10', phone: '3001234567', email: 'juan@example.com', address: 'Calle 123',
-    team_name: 'Alianza F.C.', team_logo: null,
+    team_name: 'Alianza F.C.', team_logo: '/logo-placeholder.png',
     matches_played: 12, goals_total: 8, yellow_cards: 2, red_cards: 0, avg_rating: 8.4,
     photo: null, photo_cutout: null,
 };
@@ -24,6 +24,9 @@ const CardTemplateEditor = () => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [uploadingBg, setUploadingBg] = useState(false);
+    const [sampleData, setSampleData] = useState(INITIAL_SAMPLE_DATA);
+    const [teamsList, setTeamsList] = useState([]);
+    const [selectedTeamId, setSelectedTeamId] = useState(null);
     const canvasRef = useRef(null);
     const resizingRef = useRef(null);
     const draggingRef = useRef(null);
@@ -36,12 +39,53 @@ const CardTemplateEditor = () => {
 
     const loadTemplate = async () => {
         try {
-            const res = await cardTemplateService.get();
-            setTemplate(res.data);
+            const [res, teamsRes, settingsRes] = await Promise.allSettled([
+                cardTemplateService.get(),
+                adminService.getTeams(),
+                settingsService.get()
+            ]);
+
+            if (res.status === 'fulfilled') {
+                setTemplate(res.value.data);
+            }
+
+            let teams = [];
+            if (teamsRes.status === 'fulfilled' && Array.isArray(teamsRes.value.data)) {
+                teams = teamsRes.value.data;
+                setTeamsList(teams);
+            }
+
+            const activeTeamId = localStorage.getItem('adminTeamId') || (teams.length > 0 ? teams[0].id : null);
+            if (activeTeamId) {
+                setSelectedTeamId(activeTeamId);
+                const foundTeam = teams.find(t => String(t.id) === String(activeTeamId));
+                const settingsData = settingsRes.status === 'fulfilled' ? settingsRes.value.data : null;
+
+                const resolvedName = foundTeam?.name || settingsData?.team_name || 'Alianza F.C.';
+                const resolvedLogo = settingsData?.team_logo_url || foundTeam?.logo_url || '/logo-placeholder.png';
+
+                setSampleData(prev => ({
+                    ...prev,
+                    team_name: resolvedName,
+                    team_logo: resolvedLogo
+                }));
+            }
         } catch (err) {
             showNotification('Error al cargar la plantilla', 'error');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSelectPreviewTeam = (teamId) => {
+        setSelectedTeamId(teamId);
+        const team = teamsList.find(t => String(t.id) === String(teamId));
+        if (team) {
+            setSampleData(prev => ({
+                ...prev,
+                team_name: team.name,
+                team_logo: team.logo_url || '/logo-placeholder.png'
+            }));
         }
     };
 
@@ -63,6 +107,12 @@ const CardTemplateEditor = () => {
 
     const addElement = (fieldId) => {
         const el = createDefaultElement(fieldId);
+        setTemplate(t => ({ ...t, elements: [...t.elements, el] }));
+        setSelectedId(el.id);
+    };
+
+    const addCustomTextElement = () => {
+        const el = createDefaultCustomTextElement('NUEVO TÍTULO');
         setTemplate(t => ({ ...t, elements: [...t.elements, el] }));
         setSelectedId(el.id);
     };
@@ -190,20 +240,55 @@ const CardTemplateEditor = () => {
 
     return (
         <div className="animate-fade-in">
-            <div className="flex-responsive" style={{ marginBottom: '1.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div className="flex-responsive" style={{ marginBottom: '1.5rem', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
                 <div>
                     <h1>Diseñador de Tarjeta</h1>
-                    <p style={{ color: 'var(--text-muted)' }}>Arrastra los campos sobre la tarjeta para diseñar el layout global. Los datos de ejemplo son ficticios.</p>
+                    <p style={{ color: 'var(--text-muted)' }}>Arrastra los campos sobre la tarjeta para diseñar el layout global. Los cambios aplican a todas las tarjetas del sistema.</p>
                 </div>
-                <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                    <Save size={18} /> {saving ? 'Guardando...' : 'Guardar Plantilla'}
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                    {teamsList.length > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,255,255,0.05)', padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                            <Shield size={16} color="var(--primary)" />
+                            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Probar con equipo:</span>
+                            <select
+                                className="input"
+                                style={{ width: 'auto', padding: '0.25rem 0.5rem', fontSize: '0.85rem' }}
+                                value={selectedTeamId || ''}
+                                onChange={(e) => handleSelectPreviewTeam(e.target.value)}
+                            >
+                                {teamsList.map(t => (
+                                    <option key={t.id} value={t.id}>{t.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+                    <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <Save size={18} /> {saving ? 'Guardando...' : 'Guardar Plantilla'}
+                    </button>
+                </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr 280px', gap: '1.5rem', alignItems: 'flex-start' }}>
                 {/* Palette */}
                 <div className="glass" style={{ padding: '1rem', maxHeight: '80vh', overflowY: 'auto' }}>
-                    <h4 style={{ marginBottom: '1rem' }}>Campos</h4>
+                    {/* Crear Texto Libre / Título */}
+                    <div style={{ marginBottom: '1.25rem', paddingBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                        <h4 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--primary)' }}>
+                            <Type size={16} /> Textos y Títulos
+                        </h4>
+                        <button
+                            className="btn btn-primary"
+                            style={{ width: '100%', fontSize: '0.85rem', justifyContent: 'center', padding: '0.6rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}
+                            onClick={addCustomTextElement}
+                        >
+                            <Type size={16} /> + Crear Texto / Título
+                        </button>
+                        <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.35rem', fontSize: '0.75rem' }}>
+                            Agrega títulos fijos, nombres de torneo o categorías.
+                        </small>
+                    </div>
+
+                    <h4 style={{ marginBottom: '0.75rem' }}>Campos del Jugador</h4>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         {CARD_FIELDS.map(f => (
                             <button
@@ -285,20 +370,67 @@ const CardTemplateEditor = () => {
                                     {fieldType === 'photo' || fieldType === 'image' ? (
                                         <div style={{
                                             width: '100%', height: '100%', borderRadius: style.borderRadius || 0,
-                                            background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            border: '1px dashed rgba(255,255,255,0.4)', overflow: 'hidden'
+                                            background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            border: isSelected ? '2px solid var(--primary)' : '1px dashed rgba(255,255,255,0.3)',
+                                            overflow: 'hidden', position: 'relative'
                                         }}>
-                                            <ImageIcon size={24} color="rgba(255,255,255,0.5)" />
+                                            {(sampleData[el.field] || (el.field === 'team_logo' ? '/logo-placeholder.png' : null)) ? (
+                                                <img
+                                                    src={sampleData[el.field] || (el.field === 'team_logo' ? '/logo-placeholder.png' : '')}
+                                                    alt={getFieldMeta(el.field)?.label || ''}
+                                                    style={{
+                                                        width: '100%',
+                                                        height: '100%',
+                                                        objectFit: style.objectFit || (el.field === 'team_logo' ? 'contain' : 'cover'),
+                                                        borderRadius: style.borderRadius || 0,
+                                                        pointerEvents: 'none'
+                                                    }}
+                                                    onError={(e) => {
+                                                        if (el.field === 'team_logo' && !e.currentTarget.src.includes('logo-placeholder.png')) {
+                                                            e.currentTarget.src = '/logo-placeholder.png';
+                                                        }
+                                                    }}
+                                                />
+                                            ) : (
+                                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem', pointerEvents: 'none' }}>
+                                                    <ImageIcon size={24} color="rgba(255,255,255,0.5)" />
+                                                    <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', textAlign: 'center' }}>
+                                                        {getFieldMeta(el.field)?.label || el.field}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            {isSelected && (
+                                                <div style={{
+                                                    position: 'absolute', top: 2, left: 2,
+                                                    background: 'rgba(0,0,0,0.75)', color: 'var(--primary)',
+                                                    fontSize: '10px', padding: '1px 5px', borderRadius: 4,
+                                                    fontWeight: 600, pointerEvents: 'none'
+                                                }}>
+                                                    {getFieldMeta(el.field)?.label || el.field}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (fieldType === 'custom_text' || el.field === 'custom_text') ? (
+                                        <div style={{
+                                            width: '100%', height: '100%',
+                                            fontSize: style.fontSize || 22, color: style.color || '#fff', fontWeight: style.fontWeight || 700,
+                                            textTransform: style.textTransform || 'none',
+                                            display: 'flex', alignItems: 'center',
+                                            justifyContent: style.textAlign === 'center' ? 'center' : style.textAlign === 'right' ? 'flex-end' : 'flex-start',
+                                            overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', userSelect: 'none',
+                                        }}>
+                                            {el.text || 'TÍTULO'}
                                         </div>
                                     ) : (
                                         <div style={{
                                             width: '100%', height: '100%',
                                             fontSize: style.fontSize || 18, color: style.color || '#fff', fontWeight: style.fontWeight || 600,
+                                            textTransform: style.textTransform || 'none',
                                             display: 'flex', alignItems: 'center',
                                             justifyContent: style.textAlign === 'center' ? 'center' : style.textAlign === 'right' ? 'flex-end' : 'flex-start',
                                             overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', userSelect: 'none',
                                         }}>
-                                            {formatFieldValue(el.field, SAMPLE_DATA)}
+                                            {formatFieldValue(el.field, sampleData, el)}
                                         </div>
                                     )}
                                     {isSelected && (
@@ -325,8 +457,27 @@ const CardTemplateEditor = () => {
                     ) : (
                         <>
                             <p style={{ fontSize: '0.85rem', marginBottom: '1rem' }}>
-                                <strong>{getFieldMeta(selectedElement.field)?.label || selectedElement.field}</strong>
+                                <strong>{getFieldMeta(selectedElement.field)?.label || (selectedElement.type === 'custom_text' ? 'Texto / Título personalizado' : selectedElement.field)}</strong>
                             </p>
+
+                            {(selectedElement.type === 'custom_text' || selectedElement.field === 'custom_text') && (
+                                <div className="form-group" style={{ background: 'rgba(56, 189, 248, 0.08)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(56, 189, 248, 0.3)', marginBottom: '1rem' }}>
+                                    <label className="label" style={{ color: 'var(--primary)', fontWeight: 600, marginBottom: '0.35rem' }}>
+                                        Texto o Título
+                                    </label>
+                                    <input
+                                        type="text"
+                                        className="input"
+                                        placeholder="Ej: TORNEO CLAUSURA 2026"
+                                        value={selectedElement.text || ''}
+                                        onChange={(e) => updateElement(selectedElement.id, { text: e.target.value })}
+                                        style={{ fontSize: '0.95rem', fontWeight: 600 }}
+                                    />
+                                    <small style={{ color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block', fontSize: '0.75rem' }}>
+                                        Este texto aparecerá fijo en las tarjetas.
+                                    </small>
+                                </div>
+                            )}
 
                             <div className="grid-form" style={{ gridTemplateColumns: '1fr 1fr' }}>
                                 <div className="form-group">
@@ -348,23 +499,64 @@ const CardTemplateEditor = () => {
                             </div>
 
                             {(selectedElement.type === 'photo' || selectedElement.type === 'image') ? (
-                                <div className="form-group">
-                                    <label className="label">Radio de borde (px, 50% = círculo)</label>
-                                    <input
-                                        type="text" className="input"
-                                        value={selectedElement.style?.borderRadius ?? 0}
-                                        onChange={(e) => updateElementStyle(selectedElement.id, { borderRadius: e.target.value })}
-                                    />
-                                </div>
+                                <>
+                                    {selectedElement.field === 'team_logo' && (
+                                        <div className="form-group">
+                                            <label className="label">Ajuste del Escudo</label>
+                                            <select
+                                                className="select"
+                                                value={selectedElement.style?.objectFit || 'contain'}
+                                                onChange={(e) => updateElementStyle(selectedElement.id, { objectFit: e.target.value })}
+                                            >
+                                                <option value="contain">Contener (Recomendado para escudos, no deforma)</option>
+                                                <option value="cover">Cubrir (Llena todo el cuadro)</option>
+                                            </select>
+                                        </div>
+                                    )}
+                                    <div className="form-group">
+                                        <label className="label">Radio de borde (px, 50% = círculo)</label>
+                                        <input
+                                            type="text" className="input"
+                                            value={selectedElement.style?.borderRadius ?? 0}
+                                            onChange={(e) => updateElementStyle(selectedElement.id, { borderRadius: e.target.value })}
+                                        />
+                                    </div>
+                                </>
                             ) : (
                                 <>
                                     <div className="form-group">
-                                        <label className="label">Tamaño de fuente</label>
+                                        <label className="label">Tamaño de fuente (px)</label>
                                         <input
                                             type="number" className="input"
                                             value={selectedElement.style?.fontSize || 18}
                                             onChange={(e) => updateElementStyle(selectedElement.id, { fontSize: Number(e.target.value) })}
                                         />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="label">Grosor de texto</label>
+                                        <select
+                                            className="select"
+                                            value={selectedElement.style?.fontWeight || 600}
+                                            onChange={(e) => updateElementStyle(selectedElement.id, { fontWeight: Number(e.target.value) || e.target.value })}
+                                        >
+                                            <option value={400}>Normal (400)</option>
+                                            <option value={600}>Seminegrita (600)</option>
+                                            <option value={700}>Negrita (700)</option>
+                                            <option value={800}>Extra Negrita (800)</option>
+                                            <option value={900}>Black (900)</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="label">Mayúsculas / Minúsculas</label>
+                                        <select
+                                            className="select"
+                                            value={selectedElement.style?.textTransform || 'none'}
+                                            onChange={(e) => updateElementStyle(selectedElement.id, { textTransform: e.target.value })}
+                                        >
+                                            <option value="none">Normal (como se escriba)</option>
+                                            <option value="uppercase">TODO MAYÚSCULAS</option>
+                                            <option value="capitalize">Primera Letra En Mayúscula</option>
+                                        </select>
                                     </div>
                                     <div className="form-group">
                                         <label className="label">Color</label>
