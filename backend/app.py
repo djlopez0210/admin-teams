@@ -1803,18 +1803,69 @@ CARD_DATA_SQL = """
     LEFT JOIN settings s ON p.team_id = s.team_id
 """
 
+def to_fifa_position(name):
+    if not name:
+        return ""
+    import unicodedata, re
+    clean = unicodedata.normalize('NFKD', str(name)).encode('ASCII', 'ignore').decode('utf-8').strip().lower()
+
+    if re.search(r'\b(portero|arquero|guardameta|golero|atajador|goalkeeper|gk|po|por)\b', clean):
+        return "PO"
+    if re.search(r'\b(delantero\s+izq|extremo\s+izq|punta\s+izq|ala\s+izq|lw|di|ei)\b', clean):
+        return "DI"
+    if re.search(r'\b(delantero\s+der|extremo\s+der|punta\s+der|ala\s+der|rw|dd|ed)\b', clean):
+        return "DD"
+    if re.search(r'\b(segundo\s+delantero|mediapunta|media\s+punta|cf|sd)\b', clean):
+        return "SD"
+    if re.search(r'\b(delantero\s+centro|centrodelantero|centro\s+delantero|delantero|ariete|punta|atacante|st|dc)\b', clean):
+        return "DC"
+    if re.search(r'\b(carrilero\s+izq|cai|lwb)\b', clean):
+        return "CAI"
+    if re.search(r'\b(carrilero\s+der|cad|rwb)\b', clean):
+        return "CAD"
+    if re.search(r'\b(lateral\s+izq|defensa\s+izq|defensor\s+izq|marcador\s+izq|marcapunta\s+izq|lb|li|dfi)\b', clean):
+        return "LI"
+    if re.search(r'\b(lateral\s+der|defensa\s+der|defensor\s+der|marcador\s+der|marcapunta\s+der|rb|ld|dfd)\b', clean):
+        return "LD"
+    if re.search(r'\b(defensa\s+central|central|zaguero|defensor\s+central|back\s+central|cb|dfc)\b', clean):
+        return "DFC"
+    if re.search(r'\b(defensa|defensor|zaga|df)\b', clean):
+        return "DFC"
+    if re.search(r'\b(medio.*defensivo|volante\s+defensivo|volante\s+de\s+marca|volante\s+marca|contencion|pivote|recuperador|cdm|mcd)\b', clean):
+        return "MCD"
+    if re.search(r'\b(medio.*ofensivo|volante\s+ofensivo|volante.*creacion|volante.*creativo|enganche|diez|cam|mco)\b', clean):
+        return "MCO"
+    if re.search(r'\b(medio.*izq|volante\s+izq|lm|mi)\b', clean):
+        return "MI"
+    if re.search(r'\b(medio.*der|volante\s+der|rm|md)\b', clean):
+        return "MD"
+    if re.search(r'\b(medio|mediocampista|centrocampista|volante|volante\s+mixto|cm|mc)\b', clean):
+        return "MC"
+
+    tokens = clean.split()
+    if len(tokens) == 1 and len(tokens[0]) <= 3:
+        return tokens[0].upper()
+    initials = "".join([t[0] for t in tokens if t])[:3].upper()
+    return initials if initials else clean[:3].upper()
+
 def row_to_card_data(row, columns):
     r = dict(zip(columns, row))
     avg_rating = r.get('avg_rating')
+    primary_pos = r.get('primary_position_name')
+    secondary_pos = r.get('secondary_position_name')
+    tertiary_pos = r.get('tertiary_position_name')
     return {
         "id": r.get('id'),
         "full_name": r.get('full_name'), "first_name": r.get('first_name'), "last_name": r.get('last_name'),
         "uniform_number": r.get('uniform_number'), "document_number": r.get('document_number'),
         "phone": r.get('phone'), "email": r.get('email'), "address": r.get('address'),
         "birth_date": r.get('birth_date').isoformat() if r.get('birth_date') else None,
-        "primary_position_name": r.get('primary_position_name'),
-        "secondary_position_name": r.get('secondary_position_name'),
-        "tertiary_position_name": r.get('tertiary_position_name'),
+        "primary_position_name": primary_pos,
+        "primary_position_abbr": to_fifa_position(primary_pos),
+        "secondary_position_name": secondary_pos,
+        "secondary_position_abbr": to_fifa_position(secondary_pos),
+        "tertiary_position_name": tertiary_pos,
+        "tertiary_position_abbr": to_fifa_position(tertiary_pos),
         "preferred_foot": r.get('preferred_foot'), "blood_type": r.get('blood_type'),
         "eps": r.get('eps'), "nationality": r.get('nationality'),
         "team_name": r.get('team_name'), "team_logo": r.get('team_logo'),

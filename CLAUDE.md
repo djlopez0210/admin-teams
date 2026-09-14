@@ -8,12 +8,12 @@ Contexto técnico para trabajar en este repositorio con Claude Code.
 - **Frontend**: React 18 + Vite, sin TypeScript. Estilos en un único `frontend/src/styles/index.css` con variables CSS (`--primary`, `--surface`, `--glass`, etc.) y clases utilitarias (`.glass`, `.btn`, `.input`, `.select`, `.form-group`).
 - **DB**: MySQL 8.0. **No hay herramienta de migraciones**: el esquema se gestiona con un bloque `CREATE TABLE IF NOT EXISTS` + una lista `upgrades` de `"ALTER TABLE ... ADD COLUMN ..."` (cada uno en try/except/rollback individual) que corre en **cada arranque** del backend (`backend/app.py`, inicio del archivo). Cualquier columna/tabla nueva debe seguir ese mismo patrón.
 - **Auth**: sin JWT/sesión. Una sola tabla `users` con columna `role` (`superadmin`, `admin`, `tournament_admin`, `veedor`, `player`). `POST /api/login` devuelve el rol e ids, el frontend los guarda en `localStorage` y un interceptor de axios (`frontend/src/services/api.js`) los reinyecta como headers `X-Team-ID` / `X-Tournament-ID` / `X-User-ID` en cada request. El gating de rutas por rol vive solo en el frontend (`ProtectedRoute allowedRoles={[...]}`).
-- **Orquestación**: `docker-compose.yml` (dev: frontend `:3000`, backend `:5001`, MySQL `:3307`) y `docker-compose.prod.yml`.
+- **Orquestación**: Podman vía `docker-compose.yml` (dev: frontend `:3000`, backend `:5001`, MySQL `:3307`) y `docker-compose.prod.yml`. No usamos Docker, usamos **Podman**.
 
 ## Cómo levantar el proyecto
 
 ```bash
-docker compose up --build -d
+podman compose up --build -d
 ```
 - Frontend: http://localhost:3000
 - Backend: http://localhost:5001/api (`/api/health` para chequeo rápido)

@@ -9,7 +9,9 @@ import { CARD_FIELDS, getFieldMeta, formatFieldValue, createDefaultElement, crea
 const INITIAL_SAMPLE_DATA = {
     full_name: 'Juan Pérez', first_name: 'Juan', last_name: 'Pérez',
     uniform_number: 10, document_number: '123456789',
-    primary_position_name: 'Delantero', secondary_position_name: 'Extremo Izquierdo', tertiary_position_name: 'Mediocampista',
+    primary_position_name: 'Delantero', primary_position_abbr: 'DC',
+    secondary_position_name: 'Extremo Izquierdo', secondary_position_abbr: 'DI',
+    tertiary_position_name: 'Mediocampista', tertiary_position_abbr: 'MC',
     preferred_foot: 'derecha', blood_type: 'O+', eps: 'Sura', nationality: 'Colombiana',
     birth_date: '2000-05-10', phone: '3001234567', email: 'juan@example.com', address: 'Calle 123',
     team_name: 'Alianza F.C.', team_logo: '/logo-placeholder.png',
@@ -236,7 +238,27 @@ const CardTemplateEditor = () => {
         }
     };
 
+const SAMPLE_POSITIONS = [
+    { name: 'Delantero Centro', abbr: 'DC' },
+    { name: 'Portero', abbr: 'PO' },
+    { name: 'Delantero Izquierdo', abbr: 'DI' },
+    { name: 'Delantero Derecho', abbr: 'DD' },
+    { name: 'Defensa Central', abbr: 'DFC' },
+    { name: 'Lateral Izquierdo', abbr: 'LI' },
+    { name: 'Mediocampista', abbr: 'MC' },
+    { name: 'Mediocentro Defensivo', abbr: 'MCD' },
+    { name: 'Mediocentro Ofensivo', abbr: 'MCO' },
+];
+
     if (loading || !template) return <div style={{ padding: '2rem', textAlign: 'center' }}>Cargando editor...</div>;
+
+    const handleSelectSamplePosition = (pos) => {
+        setSampleData(prev => ({
+            ...prev,
+            primary_position_name: pos.name,
+            primary_position_abbr: pos.abbr,
+        }));
+    };
 
     return (
         <div className="animate-fade-in">
@@ -245,11 +267,28 @@ const CardTemplateEditor = () => {
                     <h1>Diseñador de Tarjeta</h1>
                     <p style={{ color: 'var(--text-muted)' }}>Arrastra los campos sobre la tarjeta para diseñar el layout global. Los cambios aplican a todas las tarjetas del sistema.</p>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(56, 189, 248, 0.08)', padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
+                        <span style={{ fontSize: '0.85rem', color: 'var(--primary)', fontWeight: 600 }}>Posición muestra:</span>
+                        <select
+                            className="input"
+                            style={{ width: 'auto', padding: '0.25rem 0.5rem', fontSize: '0.85rem', fontWeight: 600 }}
+                            value={sampleData.primary_position_abbr || 'DC'}
+                            onChange={(e) => {
+                                const found = SAMPLE_POSITIONS.find(p => p.abbr === e.target.value);
+                                if (found) handleSelectSamplePosition(found);
+                            }}
+                        >
+                            {SAMPLE_POSITIONS.map(p => (
+                                <option key={p.abbr} value={p.abbr}>{p.abbr} — {p.name}</option>
+                            ))}
+                        </select>
+                    </div>
+
                     {teamsList.length > 0 && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,255,255,0.05)', padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
                             <Shield size={16} color="var(--primary)" />
-                            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Probar con equipo:</span>
+                            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Equipo muestra:</span>
                             <select
                                 className="input"
                                 style={{ width: 'auto', padding: '0.25rem 0.5rem', fontSize: '0.85rem' }}
@@ -290,16 +329,29 @@ const CardTemplateEditor = () => {
 
                     <h4 style={{ marginBottom: '0.75rem' }}>Campos del Jugador</h4>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        {CARD_FIELDS.map(f => (
-                            <button
-                                key={f.id}
-                                className="btn btn-secondary"
-                                style={{ fontSize: '0.8rem', justifyContent: 'flex-start', padding: '0.5rem 0.75rem' }}
-                                onClick={() => addElement(f.id)}
-                            >
-                                + {f.label}
-                            </button>
-                        ))}
+                        {CARD_FIELDS.map(f => {
+                            const isFifaPos = f.id.endsWith('_position_abbr');
+                            return (
+                                <button
+                                    key={f.id}
+                                    className={`btn ${isFifaPos ? 'btn-primary' : 'btn-secondary'}`}
+                                    style={{
+                                        fontSize: '0.8rem',
+                                        justifyContent: 'flex-start',
+                                        padding: '0.5rem 0.75rem',
+                                        ...(isFifaPos ? {
+                                            background: 'rgba(56, 189, 248, 0.18)',
+                                            borderColor: 'var(--primary)',
+                                            color: '#fff',
+                                            fontWeight: 700
+                                        } : {})
+                                    }}
+                                    onClick={() => addElement(f.id)}
+                                >
+                                    {isFifaPos ? `⚡ ${f.label}` : `+ ${f.label}`}
+                                </button>
+                            );
+                        })}
                     </div>
 
                     <h4 style={{ margin: '1.5rem 0 1rem' }}>Fondo</h4>
@@ -459,6 +511,41 @@ const CardTemplateEditor = () => {
                             <p style={{ fontSize: '0.85rem', marginBottom: '1rem' }}>
                                 <strong>{getFieldMeta(selectedElement.field)?.label || (selectedElement.type === 'custom_text' ? 'Texto / Título personalizado' : selectedElement.field)}</strong>
                             </p>
+
+                            {selectedElement.field.includes('position') && (
+                                <div className="form-group" style={{ background: 'rgba(56, 189, 248, 0.08)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(56, 189, 248, 0.3)', marginBottom: '1rem' }}>
+                                    <label className="label" style={{ color: 'var(--primary)', fontWeight: 700, marginBottom: '0.35rem' }}>
+                                        ⚽ Formato de Posición
+                                    </label>
+                                    <select
+                                        className="select"
+                                        value={selectedElement.field.endsWith('_abbr') ? 'abbr' : 'name'}
+                                        onChange={(e) => {
+                                            const isAbbr = e.target.value === 'abbr';
+                                            const base = selectedElement.field.replace('_abbr', '').replace('_name', '');
+                                            const newField = isAbbr ? `${base}_abbr` : `${base}_name`;
+                                            updateElement(selectedElement.id, {
+                                                field: newField,
+                                                style: {
+                                                    ...selectedElement.style,
+                                                    fontSize: isAbbr ? (selectedElement.style?.fontSize || 26) : (selectedElement.style?.fontSize || 18),
+                                                    fontWeight: isAbbr ? 800 : (selectedElement.style?.fontWeight || 600),
+                                                    textAlign: isAbbr ? 'center' : (selectedElement.style?.textAlign || 'left')
+                                                }
+                                            });
+                                        }}
+                                        style={{ fontWeight: 600 }}
+                                    >
+                                        <option value="abbr">⚡ Sigla FIFA (DC, PO, DI, DFC...)</option>
+                                        <option value="name">📝 Nombre Completo (Delantero, Portero...)</option>
+                                    </select>
+                                    <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.35rem', fontSize: '0.75rem' }}>
+                                        {selectedElement.field.endsWith('_abbr')
+                                            ? 'Muestra la sigla oficial FIFA compacta (DC, PO, DI, etc.).'
+                                            : 'Muestra el nombre completo de la posición.'}
+                                    </small>
+                                </div>
+                            )}
 
                             {(selectedElement.type === 'custom_text' || selectedElement.field === 'custom_text') && (
                                 <div className="form-group" style={{ background: 'rgba(56, 189, 248, 0.08)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(56, 189, 248, 0.3)', marginBottom: '1rem' }}>
